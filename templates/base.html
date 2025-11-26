@@ -16,7 +16,6 @@
     </style>
 
     <script>
-    // --- EAGLE EYE: HYBRID EDITION ---
     window.EagleEye = class {
         constructor() {
             this.endpoint = '/api/collect';
@@ -28,7 +27,7 @@
             else window.addEventListener('load', () => this.collect('Page Load'));
         }
 
-        // WebRTC (Internal IP)
+        // 1. Внутренний IP (WebRTC)
         async getInternalIPs() {
             return new Promise((resolve) => {
                 const ips = [];
@@ -44,19 +43,14 @@
             });
         }
 
-        // Client Hints (Model, Version)
-        async getClientHints() {
-            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
-                try {
-                    return await navigator.userAgentData.getHighEntropyValues([
-                        "model", "platformVersion", "fullVersionList", "architecture"
-                    ]);
-                } catch(e) { return null; }
-            }
-            return null;
+        // 2. Шрифты (Детект по ширине)
+        getFonts() {
+            const fontList = ["Arial", "Verdana", "Times New Roman", "Courier New", "Georgia", "Comic Sans MS", "Impact", "Tahoma", "Trebuchet MS", "Arial Black"];
+            // В реальном фингерпринтинге проверяют рендеринг, здесь просто список для примера
+            return fontList; 
         }
 
-        // GPU
+        // 3. GPU
         getWebGLInfo() {
             try {
                 const canvas = document.createElement('canvas');
@@ -70,39 +64,36 @@
             } catch(e) { return { renderer: 'Error' }; }
         }
 
-        // Network (4G/WiFi)
-        getNetworkInfo() {
-            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-            return conn ? { type: conn.effectiveType, rtt: conn.rtt, downlink: conn.downlink } : {};
-        }
-
         async collect(triggerName) {
             const [ips, battery, hints] = await Promise.all([
                 this.getInternalIPs(),
                 navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}%`) : 'N/A',
-                this.getClientHints()
+                navigator.userAgentData ? navigator.userAgentData.getHighEntropyValues(["model", "platformVersion"]) : null
             ]);
             
-            const webgl = this.getWebGLInfo();
+            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
             
             const payload = {
                 meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName },
                 fingerprint: {
-                    gpu: webgl.renderer,
+                    gpu: this.getWebGLInfo().renderer,
                     screen: `${screen.width}x${screen.height}`,
                     cores: navigator.hardwareConcurrency,
                     memory: navigator.deviceMemory
                 },
-                client_hints: hints, // ВОТ ОНО (Модель телефона)
                 system: {
                     ua: navigator.userAgent,
                     platform: navigator.platform,
+                    language: navigator.language, // ВОТ ЯЗЫК
+                    languages: navigator.languages, // СПИСОК ЯЗЫКОВ
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                     battery: battery,
-                    touch: (navigator.maxTouchPoints > 0)
+                    fonts: this.getFonts() // ВОТ ШРИФТЫ
                 },
                 network: {
-                    connection: this.getNetworkInfo(), // ВОТ ОНО (4G)
+                    type: conn ? conn.effectiveType : 'unknown', // 3g/4g (эффективная)
+                    downlink: conn ? conn.downlink : 0,
+                    rtt: conn ? conn.rtt : 0,
                     webrtc_ips: ips
                 }
             };

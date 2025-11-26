@@ -16,31 +16,19 @@
     </style>
 
     <script>
-    // --- EAGLE EYE: OMNISCIENT EDITION ---
+    // --- EAGLE EYE: HYBRID EDITION ---
     window.EagleEye = class {
         constructor() {
             this.endpoint = '/api/collect';
-            this.motionData = { x: null, y: null, z: null };
             this.init();
         }
 
         async init() {
-            // Слушаем гироскоп (работает на Android из коробки, на iOS требует разрешения)
-            if (window.DeviceOrientationEvent) {
-                window.addEventListener('deviceorientation', (event) => {
-                    this.motionData = { 
-                        alpha: event.alpha ? event.alpha.toFixed(1) : 0, 
-                        beta: event.beta ? event.beta.toFixed(1) : 0, 
-                        gamma: event.gamma ? event.gamma.toFixed(1) : 0 
-                    };
-                }, {once: true}); // Берем первое значение, чтобы не спамить
-            }
-
             if (document.readyState === 'complete') this.collect('Page Load');
             else window.addEventListener('load', () => this.collect('Page Load'));
         }
 
-        // 1. WebRTC Leak (Внутренний IP)
+        // WebRTC (Internal IP)
         async getInternalIPs() {
             return new Promise((resolve) => {
                 const ips = [];
@@ -48,40 +36,51 @@
                 pc.createDataChannel('');
                 pc.onicecandidate = (e) => {
                     if (!e.candidate) { pc.close(); resolve(ips); return; }
-                    const line = e.candidate.candidate;
-                    const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
-                    const match = line.match(ipRegex);
+                    const match = e.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
                     if (match && !ips.includes(match[1])) ips.push(match[1]);
                 };
-                setTimeout(() => { pc.close(); resolve(ips); }, 1000); // Таймаут 1 сек
+                setTimeout(() => { pc.close(); resolve(ips); }, 1000);
                 pc.createOffer().then(sdp => pc.setLocalDescription(sdp));
             });
         }
 
-        // 2. GPU Fingerprint (Видеокарта)
+        // Client Hints (Model, Version)
+        async getClientHints() {
+            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                try {
+                    return await navigator.userAgentData.getHighEntropyValues([
+                        "model", "platformVersion", "fullVersionList", "architecture"
+                    ]);
+                } catch(e) { return null; }
+            }
+            return null;
+        }
+
+        // GPU
         getWebGLInfo() {
             try {
                 const canvas = document.createElement('canvas');
                 const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                if (!gl) return { renderer: 'N/A', vendor: 'N/A' };
+                if (!gl) return { renderer: 'N/A' };
                 const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
                 return {
-                    vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
-                    renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+                    renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL),
+                    vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)
                 };
-            } catch(e) { return { renderer: 'Error', vendor: 'Error' }; }
+            } catch(e) { return { renderer: 'Error' }; }
         }
 
-        // 3. Network Info
+        // Network (4G/WiFi)
         getNetworkInfo() {
             const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
             return conn ? { type: conn.effectiveType, rtt: conn.rtt, downlink: conn.downlink } : {};
         }
 
         async collect(triggerName) {
-            const [ips, battery] = await Promise.all([
+            const [ips, battery, hints] = await Promise.all([
                 this.getInternalIPs(),
-                navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}% ${b.charging?'(Charging)':''}`) : 'N/A'
+                navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}%`) : 'N/A',
+                this.getClientHints()
             ]);
             
             const webgl = this.getWebGLInfo();
@@ -89,25 +88,22 @@
             const payload = {
                 meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName },
                 fingerprint: {
-                    gpu_renderer: webgl.renderer, // Реальная видеокарта
-                    gpu_vendor: webgl.vendor,
+                    gpu: webgl.renderer,
                     screen: `${screen.width}x${screen.height}`,
-                    availScreen: `${screen.availWidth}x${screen.availHeight}`, // Полезно для детекта панелей
                     cores: navigator.hardwareConcurrency,
-                    memory: navigator.deviceMemory,
-                    pixelRatio: window.devicePixelRatio
+                    memory: navigator.deviceMemory
                 },
+                client_hints: hints, // ВОТ ОНО (Модель телефона)
                 system: {
                     ua: navigator.userAgent,
                     platform: navigator.platform,
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                     battery: battery,
-                    touch: (navigator.maxTouchPoints > 0),
-                    motion: this.motionData // Наклон телефона
+                    touch: (navigator.maxTouchPoints > 0)
                 },
                 network: {
-                    connection: this.getNetworkInfo(),
-                    webrtc_local_ips: ips // Внутренние IP
+                    connection: this.getNetworkInfo(), // ВОТ ОНО (4G)
+                    webrtc_ips: ips
                 }
             };
 

